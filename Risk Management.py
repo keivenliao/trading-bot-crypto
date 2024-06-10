@@ -4,7 +4,7 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 import ntplib
-import time
+import os
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -146,8 +146,12 @@ def place_order_with_risk_management(exchange, symbol, side, amount, stop_loss, 
         logging.error(f"An error occurred: {e}")
 
 def main():
-    api_key = 'YOUR_API_KEY'
-    api_secret = 'YOUR_API_SECRET'
+    api_key = os.getenv('BYBIT_API_KEY')
+    api_secret = os.getenv('BYBIT_API_SECRET')
+    
+    if not api_key or not api_secret:
+        logging.error("API key and secret must be set as environment variables")
+        return
     
     synchronize_system_time()
     exchange = initialize_exchange(api_key, api_secret)

@@ -132,4 +132,3 @@ class TradingBot:
                 position = None
                 logging.info(f"Take Profit Hit at {df['close'].iloc[i]}")
                 self.place_order_with_risk_management('BTC/USDT', 'sell', 0.001, 0.05, 0.10)
-

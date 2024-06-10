@@ -2,7 +2,6 @@ import ccxt
 import pandas as pd
 import time
 import logging
-
 import ta
 from synchronize_exchange_time import synchronize_time
 
@@ -10,8 +9,8 @@ from synchronize_exchange_time import synchronize_time
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Replace with your actual API credentials
-API_KEY = 'YOUR_API_KEY'
-API_SECRET = 'YOUR_API_SECRET'
+API_KEY = 'YOUR_API_KEY'  # Replace with your actual API key
+API_SECRET = 'YOUR_API_SECRET'  # Replace with your actual API secret
 
 # Initialize the Bybit exchange
 def initialize_exchange(api_key, api_secret):
@@ -51,7 +50,7 @@ def calculate_indicators(df):
     df['EMA_26'] = df['close'].ewm(span=26, adjust=False).mean()
     df['MACD'] = df['EMA_12'] - df['EMA_26']
     df['MACD_signal'] = df['MACD'].ewm(span=9, adjust=False).mean()
-    df['RSI'] = ta.rsi(df['close'], length=14)  # Using pandas_ta for RSI calculation
+    df['RSI'] = ta.momentum.rsi(df['close'], window=14)  # Using ta for RSI calculation
     return df
 
 # Define the trading strategy
