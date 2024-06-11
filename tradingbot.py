@@ -1,21 +1,21 @@
 import ccxt
 import pandas as pd
 import pandas_ta as ta
-import time
 import logging
 import ntplib
+import time
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 class TradingBot:
-    def __init__(self, api_key, api_secret):
+    def __init__(self, api_key, api_secret, ntp_server='time.google.com', max_retries=3, backoff_factor=1):
         self.api_key = api_key
         self.api_secret = api_secret
         self.exchange = None
-        self.ntp_server = 'time.google.com'
-        self.max_retries = 3
-        self.backoff_factor = 1
+        self.ntp_server = ntp_server
+        self.max_retries = max_retries
+        self.backoff_factor = backoff_factor
 
     def synchronize_time(self):
         client = ntplib.NTPClient()
@@ -61,74 +61,42 @@ class TradingBot:
             raise e
 
     def calculate_indicators(self, df):
-        df['SMA50'] = ta.sma(df['close'], length=50)
-        df['SMA200'] = ta.sma(df['close'], length=200)
-        df['EMA12'] = ta.ema(df['close'], length=12)
-        df['EMA26'] = ta.ema(df['close'], length=26)
+        df.ta.sma(length=50, append=True)
+        df.ta.sma(length=200, append=True)
+        df.ta.ema(length=12, append=True)
+        df.ta.ema(length=26, append=True)
         macd = ta.macd(df['close'], fast=12, slow=26, signal=9)
         df['MACD'] = macd['MACD_12_26_9']
         df['MACD_signal'] = macd['MACDs_12_26_9']
-        df['RSI'] = ta.rsi(df['close'], length=14)
-        df['SAR'] = ta.sar(df['high'], df['low'], df['close'])
+        df.ta.rsi(length=14, append=True)
+        df.ta.sar(append=True)
         return df
 
     def generate_signals(self, df):
-        df['Buy_Signal'] = (df['close'] > df['SMA50']) & (df['SMA50'] > df['SMA200']) & (df['MACD'] > df['MACD_signal']) & (df['RSI'] < 70)
-        df['Sell_Signal'] = (df['close'] < df['SMA50']) & (df['SMA50'] < df['SMA200']) & (df['MACD'] < df['MACD_signal']) & (df['RSI'] > 30)
+        df['Buy_Signal'] = (df['close'] > df['SMA_50']) & (df['SMA_50'] > df['SMA_200']) & (df['MACD'] > df['MACD_signal']) & (df['RSI'] < 70)
+        df['Sell_Signal'] = (df['close'] < df['SMA_50']) & (df['SMA_50'] < df['SMA_200']) & (df['MACD'] < df['MACD_signal']) & (df['RSI'] > 30)
         return df
 
     def place_order_with_risk_management(self, symbol, side, amount, stop_loss_pct, take_profit_pct):
         try:
-            # Place market order
-            order = self.exchange.create_order(symbol, 'market', side, amount)
+            order = self.exchange.create_market_order(symbol, side, amount)
             price = order['price']
 
-            # Calculate stop loss and take profit prices
-            if side == 'buy':
-                stop_loss_price = price * (1 - stop_loss_pct)
-                take_profit_price = price * (1 + take_profit_pct)
-                stop_loss_side = 'sell'
-                take_profit_side = 'sell'
-            else:
-                stop_loss_price = price * (1 + stop_loss_pct)
-                take_profit_price = price * (1 - take_profit_pct)
-                stop_loss_side = 'buy'
-                take_profit_side = 'buy'
+            stop_loss_price = price * (1 - stop_loss_pct) if side == 'buy' else price * (1 + stop_loss_pct)
+            take_profit_price = price * (1 + take_profit_pct) if side == 'buy' else price * (1 - take_profit_pct)
 
-            # Place stop loss and take profit orders
-            self.exchange.create_order(symbol, 'stop', stop_loss_side, amount, stop_loss_price)
-            self.exchange.create_order(symbol, 'limit', take_profit_side, amount, take_profit_price)
+            self.exchange.create_order(symbol, 'stop', 'sell' if side == 'buy' else 'buy', amount, stop_loss_price)
+            self.exchange.create_order(symbol, 'limit', 'sell' if side == 'buy' else 'buy', amount, take_profit_price)
 
-            logging.info(f"Placed {side} order for {amount} {symbol} at {price} with stop loss at {stop_loss_price} and take profit at {take_profit_price}")
+            logging.info(f"Placed {side} order for {amount} {symbol} at {price} with SL at {stop_loss_price} and TP at {take_profit_price}")
 
         except Exception as e:
             logging.error(f"Failed to place order with risk management: {e}")
             raise e
 
     def execute_trades(self, df):
-        position = None
-        stop_loss = None
-        take_profit = None
-        
         for i in range(len(df)):
-            if df['Buy_Signal'].iloc[i] and position is None:
-                position = 'long'
-                stop_loss = df['close'].iloc[i] * 0.95
-                take_profit = df['close'].iloc[i] * 1.10
-                logging.info(f"Buy at {df['close'].iloc[i]}, Stop Loss: {stop_loss}, Take Profit: {take_profit}")
+            if df['Buy_Signal'].iloc[i]:
                 self.place_order_with_risk_management('BTC/USDT', 'buy', 0.001, 0.05, 0.10)
-            
-            elif df['Sell_Signal'].iloc[i] and position == 'long':
-                position = None
-                logging.info(f"Sell at {df['close'].iloc[i]}")
-                self.place_order_with_risk_management('BTC/USDT', 'sell', 0.001, 0.05, 0.10)
-            
-            elif position == 'long' and df['close'].iloc[i] <= stop_loss:
-                position = None
-                logging.info(f"Stop Loss Hit at {df['close'].iloc[i]}")
-                self.place_order_with_risk_management('BTC/USDT', 'sell', 0.001, 0.05, 0.10)
-            
-            elif position == 'long' and df['close'].iloc[i] >= take_profit:
-                position = None
-                logging.info(f"Take Profit Hit at {df['close'].iloc[i]}")
+            elif df['Sell_Signal'].iloc[i]:
                 self.place_order_with_risk_management('BTC/USDT', 'sell', 0.001, 0.05, 0.10)

@@ -7,6 +7,9 @@ API_KEY = 'YOUR_API_KEY'
 API_SECRET = 'YOUR_API_SECRET'
 
 def test_api_credentials(api_key, api_secret):
+    """
+    Test API credentials by fetching account balance.
+    """
     try:
         exchange = ccxt.bybit({
             'apiKey': api_key,
@@ -14,7 +17,7 @@ def test_api_credentials(api_key, api_secret):
             'enableRateLimit': True,
         })
         balance = exchange.fetch_balance()
-        logging.info("Successfully fetched balance")
+        logging.info("Successfully fetched balance: %s", balance)
         return balance
     except ccxt.BaseError as e:
         logging.error("Error testing API credentials: %s", e)

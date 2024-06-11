@@ -1,15 +1,11 @@
 import ccxt
 import pandas as pd
-import numpy as np
-import time
 import logging
-from datetime import datetime, timedelta
-from synchronize_exchange_time import synchronize_time
+import time
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# Initialize exchange and synchronize time
 def initialize_exchange(api_key, api_secret):
     """
     Initialize the exchange with API key and secret.
@@ -26,28 +22,12 @@ def initialize_exchange(api_key, api_secret):
         logging.error("Failed to initialize exchange: %s", e)
         raise e
 
-def synchronize_exchange_time(exchange):
-    """
-    Synchronize time with the exchange.
-    """
-    try:
-        time_offset = synchronize_time(exchange)
-        logging.info("Time synchronized with offset: %d", time_offset)
-        return time_offset
-    except ccxt.BaseError as e:
-        logging.error("Time synchronization failed: %s", e)
-        raise e
-
-# Function to fetch historical data
-def fetch_ohlcv(exchange, symbol, timeframe='1h', limit=100, time_offset=0):
+def fetch_ohlcv(exchange, symbol, timeframe='1h', limit=100):
     """
     Fetch OHLCV data.
     """
     try:
-        params = {
-            'recvWindow': 10000,
-            'timestamp': int(time.time() * 1000 + time_offset)
-        }
+        params = {'recvWindow': 10000}
         ohlcv = exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit, params=params)
         df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
         df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
@@ -57,69 +37,6 @@ def fetch_ohlcv(exchange, symbol, timeframe='1h', limit=100, time_offset=0):
         logging.error("Failed to fetch OHLCV data: %s", e)
         raise e
 
-# Function to calculate indicators
-def calculate_indicators(df):
-    """
-    Calculate technical indicators.
-    """
-    df['SMA_50'] = df['close'].rolling(window=50).mean()
-    df['SMA_200'] = df['close'].rolling(window=200).mean()
-    df['EMA_12'] = df['close'].ewm(span=12, adjust=False).mean()
-    df['EMA_26'] = df['close'].ewm(span=26, adjust=False).mean()
-    df['MACD'] = df['EMA_12'] - df['EMA_26']
-    df['MACD_signal'] = df['MACD'].ewm(span=9, adjust=False).mean()
-    df['RSI'] = calculate_rsi(df['close'], 14)
-    logging.info("Calculated technical indicators")
-    return df
-
-def calculate_rsi(series, period):
-    """
-    Calculate Relative Strength Index (RSI).
-    """
-    delta = series.diff(1)
-    gain = delta.where(delta > 0, 0)
-    loss = -delta.where(delta < 0, 0)
-    avg_gain = gain.rolling(window=period).mean()
-    avg_loss = loss.rolling(window=period).mean()
-    rs = avg_gain / avg_loss
-    rsi = 100 - (100 / (1 + rs))
-    return rsi
-
-# Detect patterns
-def detect_patterns(df):
-    """
-    Detect patterns in the data.
-    """
-    df['HeadAndShoulders'] = detect_head_and_shoulders(df)
-    df['DoubleTop'] = detect_double_top(df)
-    logging.info("Detected patterns")
-    return df
-
-def detect_head_and_shoulders(df):
-    """
-    Detect Head and Shoulders pattern.
-    """
-    pattern = [0] * len(df)
-    for i in range(2, len(df) - 1):
-        if df['high'][i - 2] < df['high'][i - 1] > df['high'][i] and \
-           df['high'][i - 1] > df['high'][i + 1] and \
-           df['low'][i - 2] > df['low'][i - 1] < df['low'][i] and \
-           df['low'][i - 1] < df['low'][i + 1]:
-            pattern[i] = 1
-    return pattern
-
-def detect_double_top(df):
-    """
-    Detect Double Top pattern.
-    """
-    pattern = [0] * len(df)
-    for i in range(1, len(df) - 1):
-        if df['high'][i - 1] < df['high'][i] > df['high'][i + 1] and \
-           df['high'][i] == df['high'][i + 1]:
-            pattern[i] = 1
-    return pattern
-
-# Define the trading strategy
 def trading_strategy(df):
     """
     Define the trading strategy.
@@ -136,21 +53,29 @@ def trading_strategy(df):
     logging.info("Applied trading strategy")
     return df
 
-# Function to place an order
 def place_order(exchange, symbol, order_type, side, amount, price=None):
     """
     Place an order on the exchange.
     """
     try:
-        order = exchange.create_order(symbol, order_type, side, amount, price)
+        if order_type == 'market':
+            order_params = {'type': order_type}
+        else:
+            order_params = {'type': order_type, 'price': price}
+        
+        order = exchange.create_order(symbol, side, amount, **order_params)
         logging.info("Placed order: %s", order)
         return order
+    except ccxt.InsufficientFunds as insf:
+        logging.error("Insufficient funds: %s", insf)
+    except ccxt.InvalidOrder as invord:
+        logging.error("Invalid order: %s", invord)
+    except ccxt.NetworkError as neterr:
+        logging.error("Network error: %s", neterr)
     except ccxt.BaseError as e:
-        logging.error("Failed to place order: %s", e)
-        raise e
+        logging.error("An error occurred: %s", e)
 
-# Function to execute the trading strategy
-def execute_trading_strategy(exchange, df):
+def execute_trading_strategy(exchange, df, symbol):
     """
     Execute the trading strategy based on signals.
     """
@@ -158,19 +83,41 @@ def execute_trading_strategy(exchange, df):
         if df['signal'][i] == 'buy':
             logging.info("Buy Signal - Placing Buy Order")
             # Uncomment the following line to actually place the order
-            # place_order(exchange, 'BTC/USDT', 'market', 'buy', 0.001)
+            # place_order(exchange, symbol, 'market', 'buy', 0.001)
         elif df['signal'][i] == 'sell':
             logging.info("Sell Signal - Placing Sell Order")
             # Uncomment the following line to actually place the order
-            # place_order(exchange, 'BTC/USDT', 'market', 'sell', 0.001)
+            # place_order(exchange, symbol, 'market', 'sell', 0.001)
 
-# Main function to run the trading strategy
 def main():
     """
     Main function to execute the trading strategy.
     """
     api_key = 'YOUR_API_KEY'
     api_secret = 'YOUR_API_SECRET'
+    symbol = 'BTC/USDT'
     
-    exchange = initialize_exchange(api_key, api_secret)
-   
+    try:
+        # Initialize exchange
+        exchange = initialize_exchange(api_key, api_secret)
+        
+        # Fetch historical data
+        df = fetch_ohlcv(exchange, symbol)
+        
+        # Calculate technical indicators
+        df['SMA_50'] = df['close'].rolling(window=50).mean()
+        df['SMA_200'] = df['close'].rolling(window=200).mean()
+        
+        # Apply trading strategy
+        df = trading_strategy(df)
+        
+        # Execute trading strategy
+        execute_trading_strategy(exchange, df, symbol)
+                
+    except ccxt.NetworkError as e:
+        logging.error("A network error occurred: %s", e)
+    except ccxt.BaseError as e:
+        logging.error("An error occurred: %s", e)
+
+if __name__ == "__main__":
+    main()

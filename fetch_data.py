@@ -1,13 +1,24 @@
 import ccxt
 import pandas as pd
-import pandas_ta as ta
-import time
 import logging
+import pandas_ta as ta
+from typing import Tuple, List
+from datetime import datetime
+import time
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-def synchronize_time_with_exchange(exchange):
+def synchronize_time_with_exchange(exchange: ccxt.Exchange) -> int:
+    """
+    Synchronize the local system time with the exchange server time.
+    
+    Args:
+    - exchange: ccxt.Exchange object
+    
+    Returns:
+    - time_offset: Time offset in milliseconds
+    """
     try:
         server_time = exchange.milliseconds()
         local_time = int(time.time() * 1000)
@@ -18,39 +29,51 @@ def synchronize_time_with_exchange(exchange):
         logging.error("Failed to synchronize time with exchange: %s", sync_error)
         raise sync_error
 
-def fetch_data(exchange, symbol='BTC/USDT'):
+def fetch_ohlcv(exchange: ccxt.Exchange, symbol: str, timeframe: str = '1h', limit: int = 100) -> pd.DataFrame:
+    """
+    Fetch OHLCV data for a given symbol and timeframe from the exchange.
+    
+    Args:
+    - exchange: ccxt.Exchange object
+    - symbol: Trading pair symbol (e.g., 'BTC/USDT')
+    - timeframe: Timeframe for OHLCV data (default: '1h')
+    - limit: Number of data points to fetch (default: 100)
+    
+    Returns:
+    - df: DataFrame containing OHLCV data
+    """
     try:
-        # Synchronize time with exchange
-        time_offset = synchronize_time_with_exchange(exchange)
-        
         # Fetch OHLCV data
         params = {
             'recvWindow': 10000,  # Adjust recvWindow as needed
-            'timestamp': exchange.milliseconds() + time_offset
+            'timestamp': exchange.milliseconds() + synchronize_time_with_exchange(exchange)
         }
-        ohlcv = exchange.fetch_ohlcv(symbol, timeframe='1h', limit=100, params=params)
+        ohlcv = exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit, params=params)
         df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
         df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
         logging.info("Fetched OHLCV data for %s", symbol)
         
-        # Perform technical analysis
-        df = perform_technical_analysis(df)
-        
         return df
     except ccxt.BaseError as ccxt_error:
-        logging.error("An error occurred while fetching data: %s", ccxt_error)
+        logging.error("An error occurred while fetching OHLCV data: %s", ccxt_error)
         raise ccxt_error
-    except Exception as e:
-        logging.error("An unexpected error occurred: %s", e)
-        raise e
 
-def perform_technical_analysis(df):
+def perform_technical_analysis(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Perform technical analysis on the OHLCV data DataFrame.
+    
+    Args:
+    - df: DataFrame containing OHLCV data
+    
+    Returns:
+    - df: DataFrame with added technical indicators
+    """
     try:
         # Adding technical indicators
-        df['SMA_20'] = ta.sma(df['close'], length=20)
-        df['SMA_50'] = ta.sma(df['close'], length=50)
-        df['RSI'] = ta.rsi(df['close'], length=14)
-        df['MACD'], df['MACD_signal'], df['MACD_hist'] = ta.macd(df['close'], fast=12, slow=26, signal=9)
+        df.ta.sma(length=20, append=True)
+        df.ta.sma(length=50, append=True)
+        df.ta.rsi(length=14, append=True)
+        df.ta.macd(fast=12, slow=26, signal=9, append=True)
         
         # Log detected patterns
         logging.info("Calculated SMA, RSI, and MACD indicators")
@@ -63,7 +86,13 @@ def perform_technical_analysis(df):
         logging.error("An error occurred during technical analysis: %s", e)
         raise e
 
-def detect_signals(df):
+def detect_signals(df: pd.DataFrame) -> None:
+    """
+    Detect bullish or bearish signals in the OHLCV data.
+    
+    Args:
+    - df: DataFrame containing OHLCV data
+    """
     try:
         # Example signal detection for educational purposes
         latest = df.iloc[-1]
@@ -106,7 +135,8 @@ if __name__ == "__main__":
 
     try:
         # Fetch data
-        df = fetch_data(exchange)
+        symbol = 'BTC/USDT'
+        df = fetch_ohlcv(exchange, symbol)
 
         # Print first few rows of data
         print(df.head())

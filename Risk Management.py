@@ -1,10 +1,9 @@
 import ccxt
 import logging
 import pandas as pd
-import numpy as np
 from datetime import datetime, timedelta
-import ntplib
 import os
+import ntplib
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -14,8 +13,7 @@ def synchronize_system_time():
     Synchronize system time with an NTP server.
     """
     try:
-        client = ntplib.NTPClient()
-        response = client.request('pool.ntp.org')
+        response = ntplib.NTPClient().request('pool.ntp.org')
         current_time = datetime.fromtimestamp(response.tx_time)
         logging.info(f"System time synchronized: {current_time}")
         return current_time
@@ -32,9 +30,7 @@ def initialize_exchange(api_key, api_secret):
             'apiKey': api_key,
             'secret': api_secret,
             'enableRateLimit': True,
-            'options': {
-                'recvWindow': 10000,
-            }
+            'options': {'recvWindow': 10000}
         })
         logging.info("Initialized Bybit exchange")
         return exchange
@@ -57,7 +53,7 @@ def fetch_historical_data(exchange, symbol, timeframe='1h', limit=100):
         logging.error("Failed to fetch historical data: %s", e)
         raise e
 
-def calculate_indicators(data):
+def calculate_technical_indicators(data):
     """
     Calculate technical indicators.
     """
@@ -99,10 +95,10 @@ def detect_head_and_shoulders(data):
     """
     pattern = [0] * len(data)
     for i in range(2, len(data) - 1):
-        if data['high'][i - 2] < data['high'][i - 1] > data['high'][i] and \
-           data['high'][i - 1] > data['high'][i + 1] and \
-           data['low'][i - 2] > data['low'][i - 1] < data['low'][i] and \
-           data['low'][i - 1] < data['low'][i + 1]:
+        if (data['high'][i - 2] < data['high'][i - 1] > data['high'][i] and
+            data['high'][i - 1] > data['high'][i + 1] and
+            data['low'][i - 2] > data['low'][i - 1] < data['low'][i] and
+            data['low'][i - 1] < data['low'][i + 1]):
             pattern[i] = 1
     return pattern
 
@@ -112,8 +108,8 @@ def detect_double_top(data):
     """
     pattern = [0] * len(data)
     for i in range(1, len(data) - 1):
-        if data['high'][i - 1] < data['high'][i] > data['high'][i + 1] and \
-           data['high'][i] == data['high'][i + 1]:
+        if (data['high'][i - 1] < data['high'][i] > data['high'][i + 1] and
+            data['high'][i] == data['high'][i + 1]):
             pattern[i] = 1
     return pattern
 
@@ -125,12 +121,12 @@ def place_order_with_risk_management(exchange, symbol, side, amount, stop_loss, 
         order = exchange.create_order(symbol, 'market', side, amount)
         logging.info(f"Market order placed: {order}")
         
-        order_price = order['price'] if 'price' in order else None
-        
+        order_price = order.get('price')
         if order_price:
             stop_loss_price = order_price * (1 - stop_loss) if side == 'buy' else order_price * (1 + stop_loss)
+            
             take_profit_price = order_price * (1 + take_profit) if side == 'buy' else order_price * (1 - take_profit)
-
+            
             logging.info(f"Stop Loss: {stop_loss_price}, Take Profit: {take_profit_price}")
             
             if side == 'buy':
@@ -158,12 +154,19 @@ def main():
     
     symbol = 'BTC/USDT'
     data = fetch_historical_data(exchange, symbol)
-    data = calculate_indicators(data)
+    data = calculate_technical_indicators(data)
     data = detect_patterns(data)
 
     # Example of placing an order with stop-loss and take-profit
+    # Configure risk management parameters here
+    side = 'buy'
+    amount = 0.001
+    stop_loss = 0.01  # 1%
+    take_profit = 0.02  # 2%
+    
     # Uncomment the line below to place a real order
-    # place_order_with_risk_management(exchange, symbol, 'buy', 0.001, 0.01, 0.02)
+    # place_order_with_risk_management(exchange, symbol, side, amount, stop_loss, take_profit)
 
 if __name__ == "__main__":
     main()
+

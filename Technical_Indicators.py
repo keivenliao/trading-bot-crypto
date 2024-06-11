@@ -1,10 +1,9 @@
+import time
 import ccxt
 import pandas as pd
-import time
 import logging
-
-import ta
 from synchronize_exchange_time import synchronize_time
+import pandas_ta as ta
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -49,12 +48,11 @@ def calculate_indicators(df):
     """
     Calculate technical indicators.
     """
-    df['SMA_50'] = df['close'].rolling(window=50).mean()
-    df['SMA_200'] = df['close'].rolling(window=200).mean()
-    df['EMA_12'] = df['close'].ewm(span=12, adjust=False).mean()
-    df['EMA_26'] = df['close'].ewm(span=26, adjust=False).mean()
-    df['MACD'] = df['EMA_12'] - df['EMA_26']
-    df['MACD_signal'] = df['MACD'].ewm(span=9, adjust=False).mean()
+    df['SMA_50'] = ta.sma(df['close'], length=50)
+    df['SMA_200'] = ta.sma(df['close'], length=200)
+    df['EMA_12'] = ta.ema(df['close'], length=12)
+    df['EMA_26'] = ta.ema(df['close'], length=26)
+    df['MACD'], df['MACD_signal'], _ = ta.macd(df['close'], fast=12, slow=26, signal=9)
     df['RSI'] = ta.rsi(df['close'], length=14)
     return df
 
@@ -77,11 +75,14 @@ def execute_trade(exchange, symbol, signal):
     """
     Execute trades based on trading signals.
     """
+    amount = 0.001  # Define your trading amount here
     if signal == 'buy':
         logging.info("Executing Buy Order")
+        # Uncomment the following line to execute buy order
         # exchange.create_market_buy_order(symbol, amount)
     elif signal == 'sell':
         logging.info("Executing Sell Order")
+        # Uncomment the following line to execute sell order
         # exchange.create_market_sell_order(symbol, amount)
 
 def main():
@@ -98,8 +99,7 @@ def main():
         df = calculate_indicators(df)
         df = trading_strategy(df)
         
-        for i in range(len(df)):
-            execute_trade(exchange, 'BTC/USDT', df['signal'][i])
+        df.apply(lambda row: execute_trade(exchange, 'BTC/USDT', row['signal']), axis=1)
         
         print(df.tail())
         
