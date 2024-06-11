@@ -1,21 +1,32 @@
+import os
 import ccxt
 import pandas as pd
 import pandas_ta as ta
 import logging
-import ntplib
 import time
+import ntplib
+from dotenv import load_dotenv
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+# Load environment variables from .env file
+load_dotenv()
+API_KEY = os.getenv('BYBIT_API_KEY')
+API_SECRET = os.getenv('BYBIT_API_SECRET')
+
+if not API_KEY or not API_SECRET:
+    logging.error("API key and secret must be set as environment variables")
+    exit(1)
 
 class TradingBot:
     def __init__(self, api_key, api_secret, ntp_server='time.google.com', max_retries=3, backoff_factor=1):
         self.api_key = api_key
         self.api_secret = api_secret
-        self.exchange = None
         self.ntp_server = ntp_server
         self.max_retries = max_retries
         self.backoff_factor = backoff_factor
+        self.exchange = None
 
     def synchronize_time(self):
         client = ntplib.NTPClient()
@@ -42,7 +53,7 @@ class TradingBot:
             })
             logging.info("Initialized Bybit exchange")
         except Exception as e:
-            logging.error("Failed to initialize exchange: %s", e)
+            logging.error(f"Failed to initialize exchange: {e}")
             raise e
 
     def fetch_data(self, symbol='BTC/USDT'):
@@ -54,10 +65,10 @@ class TradingBot:
             ohlcv = self.exchange.fetch_ohlcv(symbol, timeframe='1h', limit=100, params=params)
             df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
             df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
-            logging.info("Fetched OHLCV data for %s", symbol)
+            logging.info(f"Fetched OHLCV data for {symbol}")
             return df
         except Exception as e:
-            logging.error("An error occurred while fetching data: %s", e)
+            logging.error(f"An error occurred while fetching data: {e}")
             raise e
 
     def calculate_indicators(self, df):
@@ -70,11 +81,13 @@ class TradingBot:
         df['MACD_signal'] = macd['MACDs_12_26_9']
         df.ta.rsi(length=14, append=True)
         df.ta.sar(append=True)
+        logging.info("Calculated technical indicators")
         return df
 
     def generate_signals(self, df):
         df['Buy_Signal'] = (df['close'] > df['SMA_50']) & (df['SMA_50'] > df['SMA_200']) & (df['MACD'] > df['MACD_signal']) & (df['RSI'] < 70)
         df['Sell_Signal'] = (df['close'] < df['SMA_50']) & (df['SMA_50'] < df['SMA_200']) & (df['MACD'] < df['MACD_signal']) & (df['RSI'] > 30)
+        logging.info("Generated buy and sell signals")
         return df
 
     def place_order_with_risk_management(self, symbol, side, amount, stop_loss_pct, take_profit_pct):
@@ -100,3 +113,27 @@ class TradingBot:
                 self.place_order_with_risk_management('BTC/USDT', 'buy', 0.001, 0.05, 0.10)
             elif df['Sell_Signal'].iloc[i]:
                 self.place_order_with_risk_management('BTC/USDT', 'sell', 0.001, 0.05, 0.10)
+
+# Main function to orchestrate the workflow
+def main():
+    try:
+        bot = TradingBot(API_KEY, API_SECRET)
+        time_offset = bot.synchronize_time()
+        logging.info("Time synchronized with offset: %d", time_offset)
+        
+        bot.initialize_exchange()
+        
+        df = bot.fetch_data('BTC/USDT')
+        df = bot.calculate_indicators(df)
+        df = bot.generate_signals(df)
+        
+        bot.execute_trades(df)
+        
+        print(df.tail())
+        
+    except Exception as e:
+        logging.error(f"An error occurred during the main execution: {e}")
+
+# Run the main function
+if __name__ == "__main__":
+    main()
