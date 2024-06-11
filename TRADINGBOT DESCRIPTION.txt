@@ -1,0 +1,2305 @@
+﻿TRADINGBOT.PY
+
+
+import ccxt
+import pandas as pd
+import pandas_ta as ta
+import logging
+import ntplib
+import time
+
+
+# Setup logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+
+class TradingBot:
+    def __init__(self, api_key, api_secret, ntp_server='time.google.com', max_retries=3, backoff_factor=1):
+        self.api_key = api_key
+        self.api_secret = api_secret
+        self.exchange = None
+        self.ntp_server = ntp_server
+        self.max_retries = max_retries
+        self.backoff_factor = backoff_factor
+
+
+    def synchronize_time(self):
+        client = ntplib.NTPClient()
+        retries = 0
+        while retries < self.max_retries:
+            try:
+                response = client.request(self.ntp_server)
+                offset = response.offset
+                logging.info(f"Time synchronized with {self.ntp_server}. Offset: {offset} seconds")
+                return offset
+            except ntplib.NTPException as e:
+                logging.warning(f"Failed to synchronize time on attempt {retries + 1} with {self.ntp_server}: {e}")
+                retries += 1
+                time.sleep(self.backoff_factor * retries)  # Exponential backoff
+        logging.error(f"Max retries ({self.max_retries}) reached. Unable to synchronize time with {self.ntp_server}.")
+        return 0  # Return 0 offset if synchronization fails
+
+
+    def initialize_exchange(self):
+        try:
+            self.exchange = ccxt.bybit({
+                'apiKey': self.api_key,
+                'secret': self.api_secret,
+                'enableRateLimit': True,  # This helps to avoid rate limit errors
+            })
+            logging.info("Initialized Bybit exchange")
+        except Exception as e:
+            logging.error("Failed to initialize exchange: %s", e)
+            raise e
+
+
+    def fetch_data(self, symbol='BTC/USDT'):
+        try:
+            params = {
+                'recvWindow': 10000,
+                'timestamp': int(time.time() * 1000 + self.synchronize_time())
+            }
+            ohlcv = self.exchange.fetch_ohlcv(symbol, timeframe='1h', limit=100, params=params)
+            df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+            df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+            logging.info("Fetched OHLCV data for %s", symbol)
+            return df
+        except Exception as e:
+            logging.error("An error occurred while fetching data: %s", e)
+            raise e
+
+
+    def calculate_indicators(self, df):
+        df.ta.sma(length=50, append=True)
+        df.ta.sma(length=200, append=True)
+        df.ta.ema(length=12, append=True)
+        df.ta.ema(length=26, append=True)
+        macd = ta.macd(df['close'], fast=12, slow=26, signal=9)
+        df['MACD'] = macd['MACD_12_26_9']
+        df['MACD_signal'] = macd['MACDs_12_26_9']
+        df.ta.rsi(length=14, append=True)
+        df.ta.sar(append=True)
+        return df
+
+
+    def generate_signals(self, df):
+        df['Buy_Signal'] = (df['close'] > df['SMA_50']) & (df['SMA_50'] > df['SMA_200']) & (df['MACD'] > df['MACD_signal']) & (df['RSI'] < 70)
+        df['Sell_Signal'] = (df['close'] < df['SMA_50']) & (df['SMA_50'] < df['SMA_200']) & (df['MACD'] < df['MACD_signal']) & (df['RSI'] > 30)
+        return df
+
+
+    def place_order_with_risk_management(self, symbol, side, amount, stop_loss_pct, take_profit_pct):
+        try:
+            order = self.exchange.create_market_order(symbol, side, amount)
+            price = order['price']
+
+
+            stop_loss_price = price * (1 - stop_loss_pct) if side == 'buy' else price * (1 + stop_loss_pct)
+            take_profit_price = price * (1 + take_profit_pct) if side == 'buy' else price * (1 - take_profit_pct)
+
+
+            self.exchange.create_order(symbol, 'stop', 'sell' if side == 'buy' else 'buy', amount, stop_loss_price)
+            self.exchange.create_order(symbol, 'limit', 'sell' if side == 'buy' else 'buy', amount, take_profit_price)
+
+
+            logging.info(f"Placed {side} order for {amount} {symbol} at {price} with SL at {stop_loss_price} and TP at {take_profit_price}")
+
+
+        except Exception as e:
+            logging.error(f"Failed to place order with risk management: {e}")
+            raise e
+
+
+    def execute_trades(self, df):
+        for i in range(len(df)):
+            if df['Buy_Signal'].iloc[i]:
+                self.place_order_with_risk_management('BTC/USDT', 'buy', 0.001, 0.05, 0.10)
+            elif df['Sell_Signal'].iloc[i]:
+                self.place_order_with_risk_management('BTC/USDT', 'sell', 0.001, 0.05, 0.10)
+
+
+
+
+EXPLANATION : 
+
+
+
+
+
+
+Here's an explanation of the provided trading bot code:
+Importing Necessary Libraries
+python
+Copy code
+import ccxt
+import pandas as pd
+import pandas_ta as ta
+import logging
+import ntplib
+import time
+
+
+* ccxt: A cryptocurrency trading library to interact with different exchanges.
+* pandas: A data manipulation and analysis library.
+* pandas_ta: A technical analysis library extension for pandas.
+* logging: Python’s built-in logging module to track events during execution.
+* ntplib: A library to interact with Network Time Protocol (NTP) servers for time synchronization.
+* time: Provides various time-related functions.
+Setting up Logging
+python
+Copy code
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+
+This configures the logging module to display messages with a level of INFO or higher, formatted with the timestamp, log level, and message.
+TradingBot Class
+Initialization
+python
+Copy code
+class TradingBot:
+    def __init__(self, api_key, api_secret, ntp_server='time.google.com', max_retries=3, backoff_factor=1):
+        self.api_key = api_key
+        self.api_secret = api_secret
+        self.exchange = None
+        self.ntp_server = ntp_server
+        self.max_retries = max_retries
+        self.backoff_factor = backoff_factor
+
+
+The constructor initializes the trading bot with API keys, NTP server details, maximum retries for NTP requests, and a backoff factor for retry delays.
+Synchronize Time
+python
+Copy code
+def synchronize_time(self):
+    client = ntplib.NTPClient()
+    retries = 0
+    while retries < self.max_retries:
+        try:
+            response = client.request(self.ntp_server)
+            offset = response.offset
+            logging.info(f"Time synchronized with {self.ntp_server}. Offset: {offset} seconds")
+            return offset
+        except ntplib.NTPException as e:
+            logging.warning(f"Failed to synchronize time on attempt {retries + 1} with {self.ntp_server}: {e}")
+            retries += 1
+            time.sleep(self.backoff_factor * retries)
+    logging.error(f"Max retries ({self.max_retries}) reached. Unable to synchronize time with {self.ntp_server}.")
+    return 0
+
+
+This method attempts to synchronize the system time with an NTP server up to a maximum number of retries, implementing an exponential backoff strategy.
+Initialize Exchange
+python
+Copy code
+def initialize_exchange(self):
+    try:
+        self.exchange = ccxt.bybit({
+            'apiKey': self.api_key,
+            'secret': self.api_secret,
+            'enableRateLimit': True,
+        })
+        logging.info("Initialized Bybit exchange")
+    except Exception as e:
+        logging.error("Failed to initialize exchange: %s", e)
+        raise e
+
+
+This method initializes the connection to the Bybit exchange using the ccxt library with the provided API keys and enables rate limiting.
+Fetch Data
+python
+Copy code
+def fetch_data(self, symbol='BTC/USDT'):
+    try:
+        params = {
+            'recvWindow': 10000,
+            'timestamp': int(time.time() * 1000 + self.synchronize_time())
+        }
+        ohlcv = self.exchange.fetch_ohlcv(symbol, timeframe='1h', limit=100, params=params)
+        df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+        df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+        logging.info("Fetched OHLCV data for %s", symbol)
+        return df
+    except Exception as e:
+        logging.error("An error occurred while fetching data: %s", e)
+        raise e
+
+
+This method fetches the OHLCV (Open, High, Low, Close, Volume) data for the specified symbol, processes it into a pandas DataFrame, and converts the timestamps to a readable format.
+Calculate Indicators
+python
+Copy code
+def calculate_indicators(self, df):
+    df.ta.sma(length=50, append=True)
+    df.ta.sma(length=200, append=True)
+    df.ta.ema(length=12, append=True)
+    df.ta.ema(length=26, append=True)
+    macd = ta.macd(df['close'], fast=12, slow=26, signal=9)
+    df['MACD'] = macd['MACD_12_26_9']
+    df['MACD_signal'] = macd['MACDs_12_26_9']
+    df.ta.rsi(length=14, append=True)
+    df.ta.sar(append=True)
+    return df
+
+
+This method calculates various technical indicators and appends them to the DataFrame:
+* Simple Moving Averages (SMA) of 50 and 200 periods.
+* Exponential Moving Averages (EMA) of 12 and 26 periods.
+* Moving Average Convergence Divergence (MACD) with a signal line.
+* Relative Strength Index (RSI).
+* Parabolic SAR.
+Generate Signals
+python
+Copy code
+def generate_signals(self, df):
+    df['Buy_Signal'] = (df['close'] > df['SMA_50']) & (df['SMA_50'] > df['SMA_200']) & (df['MACD'] > df['MACD_signal']) & (df['RSI'] < 70)
+    df['Sell_Signal'] = (df['close'] < df['SMA_50']) & (df['SMA_50'] < df['SMA_200']) & (df['MACD'] < df['MACD_signal']) & (df['RSI'] > 30)
+    return df
+
+
+This method generates buy and sell signals based on the calculated indicators:
+* A buy signal is generated when the price is above the 50-period SMA, the 50-period SMA is above the 200-period SMA, the MACD is above the MACD signal line, and the RSI is below 70.
+* A sell signal is generated when the price is below the 50-period SMA, the 50-period SMA is below the 200-period SMA, the MACD is below the MACD signal line, and the RSI is above 30.
+Place Order with Risk Management
+python
+Copy code
+def place_order_with_risk_management(self, symbol, side, amount, stop_loss_pct, take_profit_pct):
+    try:
+        order = self.exchange.create_market_order(symbol, side, amount)
+        price = order['price']
+
+
+        stop_loss_price = price * (1 - stop_loss_pct) if side == 'buy' else price * (1 + stop_loss_pct)
+        take_profit_price = price * (1 + take_profit_pct) if side == 'buy' else price * (1 - take_profit_pct)
+
+
+        self.exchange.create_order(symbol, 'stop', 'sell' if side == 'buy' else 'buy', amount, stop_loss_price)
+        self.exchange.create_order(symbol, 'limit', 'sell' if side == 'buy' else 'buy', amount, take_profit_price)
+
+
+        logging.info(f"Placed {side} order for {amount} {symbol} at {price} with SL at {stop_loss_price} and TP at {take_profit_price}")
+
+
+    except Exception as e:
+        logging.error(f"Failed to place order with risk management: {e}")
+        raise e
+
+
+This method places a market order with stop loss and take profit levels:
+* A market order is placed for the specified symbol and amount.
+* The stop loss and take profit prices are calculated based on the specified percentages.
+* Stop loss and take profit orders are placed to manage risk.
+Execute Trades
+python
+Copy code
+def execute_trades(self, df):
+    for i in range(len(df)):
+        if df['Buy_Signal'].iloc[i]:
+            self.place_order_with_risk_management('BTC/USDT', 'buy', 0.001, 0.05, 0.10)
+        elif df['Sell_Signal'].iloc[i]:
+            self.place_order_with_risk_management('BTC/USDT', 'sell', 0.001, 0.05, 0.10)
+
+
+This method iterates through the DataFrame and places buy or sell orders based on the generated signals:
+* For each row in the DataFrame, if a buy signal is present, a buy order is placed with specified risk management parameters.
+* If a sell signal is present, a sell order is placed with specified risk management parameters.
+This code sets up a basic trading bot that uses technical analysis indicators to generate trading signals and places orders with risk management on the Bybit exchange.
+
+
+
+
+TRADING STRATEGY.PY
+
+
+
+
+import ccxt
+import pandas as pd
+import time
+import logging
+import ta
+import os
+from synchronize_exchange_time import synchronize_time
+
+
+# Setup logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+
+# Setup environment variables for API credentials
+API_KEY = os.getenv('BYBIT_API_KEY')
+API_SECRET = os.getenv('BYBIT_API_SECRET')
+
+
+if not API_KEY or not API_SECRET:
+    logging.error("API key and secret must be set as environment variables")
+    exit(1)
+
+
+# Initialize the Bybit exchange
+def initialize_exchange(api_key, api_secret):
+    try:
+        exchange = ccxt.bybit({
+            'apiKey': api_key,
+            'secret': api_secret,
+            'enableRateLimit': True,  # This helps to avoid rate limit errors
+        })
+        logging.info("Initialized Bybit exchange")
+        return exchange
+    except ccxt.BaseError as e:
+        logging.error("Failed to initialize exchange: %s", e)
+        raise e
+
+
+# Function to fetch historical data
+def fetch_ohlcv(exchange, symbol, timeframe='1h', limit=100, time_offset=0):
+    params = {
+        'recvWindow': 10000,  # Increased to 10000 milliseconds (10 seconds)
+        'timestamp': int(time.time() * 1000 + time_offset)
+    }
+    try:
+        ohlcv = exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit, params=params)
+        df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+        df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+        logging.info(f"Fetched OHLCV data for {symbol}")
+        return df
+    except ccxt.BaseError as e:
+        logging.error("Error fetching OHLCV data: %s", e)
+        raise e
+
+
+# Function to calculate indicators
+def calculate_indicators(df):
+    """
+    Calculate technical indicators using pandas_ta library.
+    """
+    try:
+        df.ta.sma(length=50, append=True)
+        df.ta.sma(length=200, append=True)
+        df.ta.ema(length=12, append=True)
+        df.ta.ema(length=26, append=True)
+        df.ta.macd(append=True)
+        df.ta.rsi(length=14, append=True)
+        logging.info("Calculated technical indicators")
+    except Exception as e:
+        logging.error("Error calculating indicators: %s", e)
+        raise e
+    return df
+
+
+# Define the trading strategy
+def trading_strategy(df):
+    signals = ['hold']  # Initialize with 'hold' for the first entry
+    for i in range(1, len(df)):
+        if df['SMA_50'][i] > df['SMA_200'][i] and df['SMA_50'][i-1] <= df['SMA_200'][i-1]:
+            signals.append('buy')
+        elif df['SMA_50'][i] < df['SMA_200'][i] and df['SMA_50'][i-1] >= df['SMA_200'][i-1]:
+            signals.append('sell')
+        else:
+            signals.append('hold')
+    df['signal'] = signals
+    logging.info("Defined trading strategy")
+    return df
+
+
+# Function to execute trades
+def execute_trade(exchange, symbol, signal):
+    """
+    Execute trades based on signals.
+    """
+    amount = 1  # Placeholder amount for demonstration purposes
+    try:
+        if signal == 'buy':
+            logging.info("Executing Buy Order")
+            exchange.create_market_buy_order(symbol, amount)
+        elif signal == 'sell':
+            logging.info("Executing Sell Order")
+            exchange.create_market_sell_order(symbol, amount)
+    except ccxt.BaseError as e:
+        logging.error(f"Error executing {signal} order: {e}")
+        raise e
+
+
+# Main function to orchestrate the workflow
+def main():
+    try:
+        # Attempt time synchronization
+        time_offset = synchronize_time()
+        logging.info("Time synchronized with offset: %d", time_offset)
+        
+        # Initialize exchange
+        exchange = initialize_exchange(API_KEY, API_SECRET)
+        
+        # Fetch data, calculate indicators, and apply strategy
+        df = fetch_ohlcv(exchange, 'BTC/USDT', time_offset=time_offset)
+        df = calculate_indicators(df)
+        df = trading_strategy(df)
+        
+        # Execute trades based on signals
+        for _, row in df.iterrows():
+            execute_trade(exchange, 'BTC/USDT', row['signal'])
+        
+        # Output the resulting DataFrame
+        print(df.tail())
+        
+    except Exception as e:
+        logging.error("An error occurred during the main execution: %s", e)
+
+
+# Run the main function
+if __name__ == "__main__":
+    main()
+
+
+
+
+Here's an explanation of the revised trading bot code:
+Importing Necessary Libraries
+python
+Copy code
+import ccxt
+import pandas as pd
+import time
+import logging
+import ta
+import os
+from synchronize_exchange_time import synchronize_time
+
+
+* ccxt: A cryptocurrency trading library to interact with different exchanges.
+* pandas: A data manipulation and analysis library.
+* time: Provides various time-related functions.
+* logging: Python’s built-in logging module to track events during execution.
+* ta: A technical analysis library.
+* os: Provides a way of using operating system dependent functionality.
+* synchronize_exchange_time: Custom module to synchronize time with an NTP server.
+Setting up Logging
+python
+Copy code
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+
+This configures the logging module to display messages with a level of INFO or higher, formatted with the timestamp, log level, and message.
+Setup Environment Variables for API Credentials
+python
+Copy code
+API_KEY = os.getenv('BYBIT_API_KEY')
+API_SECRET = os.getenv('BYBIT_API_SECRET')
+
+
+if not API_KEY or not API_SECRET:
+    logging.error("API key and secret must be set as environment variables")
+    exit(1)
+
+
+This retrieves the API key and secret from environment variables. If they are not set, the script logs an error message and exits.
+Initialize the Bybit Exchange
+python
+Copy code
+def initialize_exchange(api_key, api_secret):
+    try:
+        exchange = ccxt.bybit({
+            'apiKey': api_key,
+            'secret': api_secret,
+            'enableRateLimit': True,
+        })
+        logging.info("Initialized Bybit exchange")
+        return exchange
+    except ccxt.BaseError as e:
+        logging.error("Failed to initialize exchange: %s", e)
+        raise e
+
+
+This function initializes the connection to the Bybit exchange using the ccxt library with the provided API keys and enables rate limiting.
+Fetch Historical Data
+python
+Copy code
+def fetch_ohlcv(exchange, symbol, timeframe='1h', limit=100, time_offset=0):
+    params = {
+        'recvWindow': 10000,
+        'timestamp': int(time.time() * 1000 + time_offset)
+    }
+    try:
+        ohlcv = exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit, params=params)
+        df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+        df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+        logging.info(f"Fetched OHLCV data for {symbol}")
+        return df
+    except ccxt.BaseError as e:
+        logging.error("Error fetching OHLCV data: %s", e)
+        raise e
+
+
+This function fetches the OHLCV (Open, High, Low, Close, Volume) data for the specified symbol, processes it into a pandas DataFrame, and converts the timestamps to a readable format.
+Calculate Technical Indicators
+python
+Copy code
+def calculate_indicators(df):
+    try:
+        df.ta.sma(length=50, append=True)
+        df.ta.sma(length=200, append=True)
+        df.ta.ema(length=12, append=True)
+        df.ta.ema(length=26, append=True)
+        df.ta.macd(append=True)
+        df.ta.rsi(length=14, append=True)
+        logging.info("Calculated technical indicators")
+    except Exception as e:
+        logging.error("Error calculating indicators: %s", e)
+        raise e
+    return df
+
+
+This function calculates various technical indicators and appends them to the DataFrame:
+* Simple Moving Averages (SMA) of 50 and 200 periods.
+* Exponential Moving Averages (EMA) of 12 and 26 periods.
+* Moving Average Convergence Divergence (MACD).
+* Relative Strength Index (RSI).
+Define Trading Strategy
+python
+Copy code
+def trading_strategy(df):
+    signals = ['hold']
+    for i in range(1, len(df)):
+        if df['SMA_50'][i] > df['SMA_200'][i] and df['SMA_50'][i-1] <= df['SMA_200'][i-1]:
+            signals.append('buy')
+        elif df['SMA_50'][i] < df['SMA_200'][i] and df['SMA_50'][i-1] >= df['SMA_200'][i-1]:
+            signals.append('sell')
+        else:
+            signals.append('hold')
+    df['signal'] = signals
+    logging.info("Defined trading strategy")
+    return df
+
+
+This function defines a simple trading strategy based on the crossover of 50-period and 200-period SMAs:
+* A buy signal is generated when the 50-period SMA crosses above the 200-period SMA.
+* A sell signal is generated when the 50-period SMA crosses below the 200-period SMA.
+* Otherwise, the signal is 'hold'.
+Execute Trades
+python
+Copy code
+def execute_trade(exchange, symbol, signal):
+    amount = 1
+    try:
+        if signal == 'buy':
+            logging.info("Executing Buy Order")
+            exchange.create_market_buy_order(symbol, amount)
+        elif signal == 'sell':
+            logging.info("Executing Sell Order")
+            exchange.create_market_sell_order(symbol, amount)
+    except ccxt.BaseError as e:
+        logging.error(f"Error executing {signal} order: {e}")
+        raise e
+
+
+This function executes trades based on the generated signals:
+* If the signal is 'buy', a market buy order is placed.
+* If the signal is 'sell', a market sell order is placed.
+* A placeholder amount of 1 is used for demonstration purposes.
+Main Function
+python
+Copy code
+def main():
+    try:
+        time_offset = synchronize_time()
+        logging.info("Time synchronized with offset: %d", time_offset)
+        
+        exchange = initialize_exchange(API_KEY, API_SECRET)
+        
+        df = fetch_ohlcv(exchange, 'BTC/USDT', time_offset=time_offset)
+        df = calculate_indicators(df)
+        df = trading_strategy(df)
+        
+        for _, row in df.iterrows():
+            execute_trade(exchange, 'BTC/USDT', row['signal'])
+        
+        print(df.tail())
+        
+    except Exception as e:
+        logging.error("An error occurred during the main execution: %s", e)
+
+
+if __name__ == "__main__":
+    main()
+
+
+This is the main function that orchestrates the workflow:
+* Synchronizes the system time with an NTP server.
+* Initializes the exchange.
+* Fetches historical OHLCV data.
+* Calculates technical indicators.
+* Applies the trading strategy to generate signals.
+* Executes trades based on the signals.
+* Prints the last few rows of the resulting DataFrame.
+
+
+
+
+TEST_TRADING_BOT.PY
+
+
+import unittest
+from unittest.mock import MagicMock, patch
+from tradingbot import TradingBot
+
+
+class TestTradingFunctions(unittest.TestCase):
+
+
+    def setUp(self):
+        self.api_key = 'test_api_key'
+        self.api_secret = 'test_api_secret'
+        self.trading_bot = TradingBot(self.api_key, self.api_secret)
+        self.exchange = MagicMock()
+
+
+    @patch('tradingbot.ccxt.bybit')
+    def test_initialize_exchange(self, mock_bybit):
+        mock_exchange = MagicMock()
+        mock_bybit.return_value = mock_exchange
+        self.trading_bot.initialize_exchange()
+        self.assertEqual(self.trading_bot.exchange, mock_exchange)
+        mock_bybit.assert_called_once_with({
+            'apiKey': self.api_key,
+            'secret': self.api_secret,
+            'enableRateLimit': True,
+        })
+
+
+    @patch('tradingbot.ntplib.NTPClient')
+    def test_synchronize_time(self, mock_ntp_client):
+        mock_ntp_client.return_value.request.return_value.offset = 0.123
+        time_offset = self.trading_bot.synchronize_time()
+        self.assertEqual(time_offset, 0.123)
+
+
+    def test_place_order_with_risk_management(self):
+        self.exchange.create_order = MagicMock(return_value={'price': 50000})
+        self.trading_bot.exchange = self.exchange
+        
+        self.trading_bot.place_order_with_risk_management('BTC/USDT', 'buy', 0.001, 0.01, 0.02)
+        self.exchange.create_order.assert_any_call('BTC/USDT', 'market', 'buy', 0.001)
+        self.exchange.create_order.assert_any_call('BTC/USDT', 'stop', 'sell', 0.001, 49500.0)
+        self.exchange.create_order.assert_any_call('BTC/USDT', 'limit', 'sell', 0.001, 51000.0)
+
+
+if __name__ == '__main__':
+    unittest.main()
+
+
+
+
+EXPLANATION : 
+
+
+Here is a detailed explanation of the unit tests implemented in the provided code:
+Importing Required Libraries
+python
+Copy code
+import unittest
+from unittest.mock import MagicMock, patch
+from tradingbot import TradingBot
+
+
+* unittest: The built-in Python module for writing and running tests.
+* unittest.mock: Used for creating mock objects during testing.
+* TradingBot: The class being tested.
+Test Class Setup
+python
+Copy code
+class TestTradingFunctions(unittest.TestCase):
+
+
+    def setUp(self):
+        self.api_key = 'test_api_key'
+        self.api_secret = 'test_api_secret'
+        self.trading_bot = TradingBot(self.api_key, self.api_secret)
+        self.exchange = MagicMock()
+
+
+* setUp(): A method that sets up the initial conditions for each test. It initializes a TradingBot instance and a mock exchange object.
+Test for Initializing the Exchange
+python
+Copy code
+@patch('tradingbot.ccxt.bybit')
+def test_initialize_exchange(self, mock_bybit):
+    mock_exchange = MagicMock()
+    mock_bybit.return_value = mock_exchange
+    self.trading_bot.initialize_exchange()
+    self.assertEqual(self.trading_bot.exchange, mock_exchange)
+    mock_bybit.assert_called_once_with({
+        'apiKey': self.api_key,
+        'secret': self.api_secret,
+        'enableRateLimit': True,
+    })
+
+
+* @patch('tradingbot.ccxt.bybit'): This decorator replaces the ccxt.bybit function with a mock object during the test.
+* mock_bybit.return_value: Sets the return value of the mock bybit function.
+* self.trading_bot.initialize_exchange(): Calls the initialize_exchange method on the TradingBot instance.
+* self.assertEqual(self.trading_bot.exchange, mock_exchange): Asserts that the exchange initialized in TradingBot is the mock exchange.
+* mock_bybit.assert_called_once_with({...}): Asserts that the mock bybit function was called once with the expected parameters.
+Test for Synchronizing Time
+python
+Copy code
+@patch('tradingbot.ntplib.NTPClient')
+def test_synchronize_time(self, mock_ntp_client):
+    mock_ntp_client.return_value.request.return_value.offset = 0.123
+    time_offset = self.trading_bot.synchronize_time()
+    self.assertEqual(time_offset, 0.123)
+
+
+* @patch('tradingbot.ntplib.NTPClient'): This decorator replaces the ntplib.NTPClient class with a mock object during the test.
+* mock_ntp_client.return_value.request.return_value.offset = 0.123: Sets the return value of the request method to have an offset of 0.123.
+* time_offset = self.trading_bot.synchronize_time(): Calls the synchronize_time method on the TradingBot instance and stores the returned offset.
+* self.assertEqual(time_offset, 0.123): Asserts that the returned time offset is 0.123.
+Test for Placing Orders with Risk Management
+python
+Copy code
+def test_place_order_with_risk_management(self):
+    self.exchange.create_order = MagicMock(return_value={'price': 50000})
+    self.trading_bot.exchange = self.exchange
+
+
+    self.trading_bot.place_order_with_risk_management('BTC/USDT', 'buy', 0.001, 0.01, 0.02)
+    self.exchange.create_order.assert_any_call('BTC/USDT', 'market', 'buy', 0.001)
+    self.exchange.create_order.assert_any_call('BTC/USDT', 'stop', 'sell', 0.001, 49500.0)
+    self.exchange.create_order.assert_any_call('BTC/USDT', 'limit', 'sell', 0.001, 51000.0)
+
+
+* self.exchange.create_order = MagicMock(return_value={'price': 50000}): Mocks the create_order method of the exchange to return a price of 50000.
+* self.trading_bot.exchange = self.exchange: Sets the exchange attribute of the TradingBot instance to the mock exchange.
+* self.trading_bot.place_order_with_risk_management(...): Calls the place_order_with_risk_management method on the TradingBot instance.
+* self.exchange.create_order.assert_any_call(...): Asserts that the create_order method was called with specific arguments for the market order, stop order, and limit order:
+   * Market order to buy 0.001 BTC at the market price.
+   * Stop order to sell 0.001 BTC at 49500.0.
+   * Limit order to sell 0.001 BTC at 51000.0.
+Running the Tests
+python
+Copy code
+if __name__ == '__main__':
+    unittest.main()
+
+
+This line ensures that the test suite runs when the script is executed directly.
+Summary
+This test suite validates three key functions of the TradingBot class:
+1. Initialization of the exchange: Ensures that the exchange is correctly initialized with the given API credentials.
+2. Time synchronization: Ensures that the time synchronization function correctly retrieves the time offset from an NTP server.
+3. Order placement with risk management: Ensures that market, stop, and limit orders are placed correctly with the specified parameters.
+These tests use mocking to isolate and test the functionality without making real API calls, ensuring that the tests are reliable and do not depend on external systems.
+
+
+TEST_BYBIT_API.PY
+
+
+import ccxt
+import logging
+
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+
+API_KEY = 'YOUR_API_KEY'
+API_SECRET = 'YOUR_API_SECRET'
+
+
+def test_api_credentials(api_key, api_secret):
+    """
+    Test API credentials by fetching account balance.
+    """
+    try:
+        exchange = ccxt.bybit({
+            'apiKey': api_key,
+            'secret': api_secret,
+            'enableRateLimit': True,
+        })
+        balance = exchange.fetch_balance()
+        logging.info("Successfully fetched balance: %s", balance)
+        return balance
+    except ccxt.BaseError as e:
+        logging.error("Error testing API credentials: %s", e)
+        raise e
+
+
+if __name__ == "__main__":
+    test_api_credentials(API_KEY, API_SECRET)
+
+
+
+
+EXPLANATION
+
+
+
+
+This code tests API credentials for the Bybit exchange using the ccxt library. It attempts to fetch the account balance to verify the credentials' validity and logs the results. Here’s a detailed explanation of the code:
+Importing Required Libraries
+python
+Copy code
+import ccxt
+import logging
+
+
+* ccxt: A library to interact with various cryptocurrency exchanges.
+* logging: Python’s built-in logging module to track events during execution.
+Configuring Logging
+python
+Copy code
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+
+This configures the logging module to display messages with a level of INFO or higher, formatted with the timestamp, log level, and message.
+Setting API Credentials
+python
+Copy code
+API_KEY = 'YOUR_API_KEY'
+API_SECRET = 'YOUR_API_SECRET'
+
+
+These are placeholders for your actual Bybit API key and secret. Replace 'YOUR_API_KEY' and 'YOUR_API_SECRET' with your actual credentials.
+Function to Test API Credentials
+python
+Copy code
+def test_api_credentials(api_key, api_secret):
+    """
+    Test API credentials by fetching account balance.
+    """
+    try:
+        exchange = ccxt.bybit({
+            'apiKey': api_key,
+            'secret': api_secret,
+            'enableRateLimit': True,
+        })
+        balance = exchange.fetch_balance()
+        logging.info("Successfully fetched balance: %s", balance)
+        return balance
+    except ccxt.BaseError as e:
+        logging.error("Error testing API credentials: %s", e)
+        raise e
+
+
+* Function Definition: test_api_credentials(api_key, api_secret)
+   * This function tests the provided API credentials by attempting to fetch the account balance from the Bybit exchange.
+Exchange Initialization:
+python
+Copy code
+exchange = ccxt.bybit({
+    'apiKey': api_key,
+    'secret': api_secret,
+    'enableRateLimit': True,
+})
+*    * Initializes a ccxt instance for the Bybit exchange with the given API key and secret, and enables rate limiting.
+Fetching Balance:
+python
+Copy code
+balance = exchange.fetch_balance()
+*    * Attempts to fetch the account balance.
+Logging and Returning Balance:
+python
+Copy code
+logging.info("Successfully fetched balance: %s", balance)
+return balance
+*    * Logs the fetched balance and returns it.
+Exception Handling:
+python
+Copy code
+except ccxt.BaseError as e:
+    logging.error("Error testing API credentials: %s", e)
+    raise e
+*    * Catches any exceptions raised during the API call, logs the error, and re-raises the exception.
+Main Execution Block
+python
+Copy code
+if __name__ == "__main__":
+    test_api_credentials(API_KEY, API_SECRET)
+
+
+Execution Check:
+python
+Copy code
+if __name__ == "__main__":
+*    * Ensures that the test_api_credentials function runs only when the script is executed directly, not when imported as a module.
+Function Call:
+python
+Copy code
+test_api_credentials(API_KEY, API_SECRET)
+*    * Calls the test_api_credentials function with the provided API key and secret.
+Summary
+This script is designed to verify the validity of API credentials for the Bybit exchange by fetching and logging the account balance. Proper exception handling ensures that any errors during the API call are logged, providing clear feedback on the credentials' validity. Remember to replace the placeholder API key and secret with your actual credentials before running the script.
+
+
+TECHNICAL_INDICATORS.PY
+
+
+import time
+import ccxt
+import pandas as pd
+import logging
+from synchronize_exchange_time import synchronize_time
+import pandas_ta as ta
+
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+
+API_KEY = 'YOUR_API_KEY'
+API_SECRET = 'YOUR_API_SECRET'
+
+
+def initialize_exchange(api_key, api_secret):
+    """
+    Initialize the Bybit exchange.
+    """
+    try:
+        exchange = ccxt.bybit({
+            'apiKey': api_key,
+            'secret': api_secret,
+            'enableRateLimit': True,
+        })
+        logging.info("Initialized Bybit exchange")
+        return exchange
+    except Exception as e:
+        logging.error("Failed to initialize exchange: %s", e)
+        raise e
+
+
+def fetch_ohlcv(exchange, symbol, timeframe='1h', limit=100, time_offset=0):
+    """
+    Fetch OHLCV data from the exchange.
+    """
+    params = {
+        'recvWindow': 10000,
+        'timestamp': int(time.time() * 1000 + time_offset)
+    }
+    try:
+        ohlcv = exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit, params=params)
+        df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+        df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+        logging.info(f"Fetched OHLCV data for {symbol}")
+        return df
+    except ccxt.BaseError as e:
+        logging.error("Error fetching OHLCV data: %s", e)
+        raise e
+
+
+def calculate_indicators(df):
+    """
+    Calculate technical indicators.
+    """
+    df['SMA_50'] = ta.sma(df['close'], length=50)
+    df['SMA_200'] = ta.sma(df['close'], length=200)
+    df['EMA_12'] = ta.ema(df['close'], length=12)
+    df['EMA_26'] = ta.ema(df['close'], length=26)
+    df['MACD'], df['MACD_signal'], _ = ta.macd(df['close'], fast=12, slow=26, signal=9)
+    df['RSI'] = ta.rsi(df['close'], length=14)
+    return df
+
+
+def trading_strategy(df):
+    """
+    Define the trading strategy based on technical indicators.
+    """
+    signals = ['hold']
+    for i in range(1, len(df)):
+        if df['SMA_50'][i] > df['SMA_200'][i] and df['SMA_50'][i-1] <= df['SMA_200'][i-1]:
+            signals.append('buy')
+        elif df['SMA_50'][i] < df['SMA_200'][i] and df['SMA_50'][i-1] >= df['SMA_200'][i-1]:
+            signals.append('sell')
+        else:
+            signals.append('hold')
+    df['signal'] = signals
+    return df
+
+
+def execute_trade(exchange, symbol, signal):
+    """
+    Execute trades based on trading signals.
+    """
+    amount = 0.001  # Define your trading amount here
+    if signal == 'buy':
+        logging.info("Executing Buy Order")
+        # Uncomment the following line to execute buy order
+        # exchange.create_market_buy_order(symbol, amount)
+    elif signal == 'sell':
+        logging.info("Executing Sell Order")
+        # Uncomment the following line to execute sell order
+        # exchange.create_market_sell_order(symbol, amount)
+
+
+def main():
+    """
+    Main function to orchestrate the workflow.
+    """
+    try:
+        time_offset = synchronize_time()
+        logging.info("Time synchronized with offset: %d", time_offset)
+        
+        exchange = initialize_exchange(API_KEY, API_SECRET)
+        
+        df = fetch_ohlcv(exchange, 'BTC/USDT', time_offset=time_offset)
+        df = calculate_indicators(df)
+        df = trading_strategy(df)
+        
+        df.apply(lambda row: execute_trade(exchange, 'BTC/USDT', row['signal']), axis=1)
+        
+        print(df.tail())
+        
+    except Exception as e:
+        logging.error("An error occurred during the main execution: %s", e)
+
+
+if __name__ == "__main__":
+    main()
+
+
+
+
+EXPLANATION : 
+
+
+This Python script orchestrates a simple trading bot that fetches market data from the Bybit exchange, calculates technical indicators, generates trading signals based on a predefined strategy, and executes trades accordingly. Below is a detailed breakdown of the code:
+Importing Required Libraries
+python
+Copy code
+import time
+import ccxt
+import pandas as pd
+import logging
+from synchronize_exchange_time import synchronize_time
+import pandas_ta as ta
+
+
+* time: Provides time-related functions.
+* ccxt: A library to interact with various cryptocurrency exchanges.
+* pandas: A data manipulation and analysis library.
+* logging: Python’s built-in logging module.
+* synchronize_exchange_time: A custom module to synchronize the system time with an NTP server.
+* pandas_ta: A library to calculate technical analysis indicators.
+Configuring Logging
+python
+Copy code
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+
+This configures the logging module to display messages with a level of INFO or higher, formatted with the timestamp, log level, and message.
+Setting API Credentials
+python
+Copy code
+API_KEY = 'YOUR_API_KEY'
+API_SECRET = 'YOUR_API_SECRET'
+
+
+Replace 'YOUR_API_KEY' and 'YOUR_API_SECRET' with your actual Bybit API key and secret.
+Function to Initialize Exchange
+python
+Copy code
+def initialize_exchange(api_key, api_secret):
+    """
+    Initialize the Bybit exchange.
+    """
+    try:
+        exchange = ccxt.bybit({
+            'apiKey': api_key,
+            'secret': api_secret,
+            'enableRateLimit': True,
+        })
+        logging.info("Initialized Bybit exchange")
+        return exchange
+    except Exception as e:
+        logging.error("Failed to initialize exchange: %s", e)
+        raise e
+
+
+This function initializes a ccxt instance for the Bybit exchange using the provided API key and secret.
+Function to Fetch OHLCV Data
+python
+Copy code
+def fetch_ohlcv(exchange, symbol, timeframe='1h', limit=100, time_offset=0):
+    """
+    Fetch OHLCV data from the exchange.
+    """
+    params = {
+        'recvWindow': 10000,
+        'timestamp': int(time.time() * 1000 + time_offset)
+    }
+    try:
+        ohlcv = exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit, params=params)
+        df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+        df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+        logging.info(f"Fetched OHLCV data for {symbol}")
+        return df
+    except ccxt.BaseError as e:
+        logging.error("Error fetching OHLCV data: %s", e)
+        raise e
+
+
+This function fetches OHLCV (Open, High, Low, Close, Volume) data for a given symbol and timeframe from the exchange.
+Function to Calculate Technical Indicators
+python
+Copy code
+def calculate_indicators(df):
+    """
+    Calculate technical indicators.
+    """
+    df['SMA_50'] = ta.sma(df['close'], length=50)
+    df['SMA_200'] = ta.sma(df['close'], length=200)
+    df['EMA_12'] = ta.ema(df['close'], length=12)
+    df['EMA_26'] = ta.ema(df['close'], length=26)
+    df['MACD'], df['MACD_signal'], _ = ta.macd(df['close'], fast=12, slow=26, signal=9)
+    df['RSI'] = ta.rsi(df['close'], length=14)
+    return df
+
+
+This function calculates several technical indicators, including simple moving averages (SMA), exponential moving averages (EMA), the MACD indicator, and the Relative Strength Index (RSI).
+Function to Define Trading Strategy
+python
+Copy code
+def trading_strategy(df):
+    """
+    Define the trading strategy based on technical indicators.
+    """
+    signals = ['hold']
+    for i in range(1, len(df)):
+        if df['SMA_50'][i] > df['SMA_200'][i] and df['SMA_50'][i-1] <= df['SMA_200'][i-1]:
+            signals.append('buy')
+        elif df['SMA_50'][i] < df['SMA_200'][i] and df['SMA_50'][i-1] >= df['SMA_200'][i-1]:
+            signals.append('sell')
+        else:
+            signals.append('hold')
+    df['signal'] = signals
+    return df
+
+
+This function generates trading signals based on the calculated indicators. A 'buy' signal is generated when the 50-period SMA crosses above the 200-period SMA, and a 'sell' signal is generated when the 50-period SMA crosses below the 200-period SMA.
+Function to Execute Trades
+python
+Copy code
+def execute_trade(exchange, symbol, signal):
+    """
+    Execute trades based on trading signals.
+    """
+    amount = 0.001  # Define your trading amount here
+    if signal == 'buy':
+        logging.info("Executing Buy Order")
+        # Uncomment the following line to execute buy order
+        # exchange.create_market_buy_order(symbol, amount)
+    elif signal == 'sell':
+        logging.info("Executing Sell Order")
+        # Uncomment the following line to execute sell order
+        # exchange.create_market_sell_order(symbol, amount)
+
+
+This function executes trades based on the generated signals. The actual order execution lines are commented out to prevent accidental trades during testing.
+Main Function
+python
+Copy code
+def main():
+    """
+    Main function to orchestrate the workflow.
+    """
+    try:
+        time_offset = synchronize_time()
+        logging.info("Time synchronized with offset: %d", time_offset)
+        
+        exchange = initialize_exchange(API_KEY, API_SECRET)
+        
+        df = fetch_ohlcv(exchange, 'BTC/USDT', time_offset=time_offset)
+        df = calculate_indicators(df)
+        df = trading_strategy(df)
+        
+        df.apply(lambda row: execute_trade(exchange, 'BTC/USDT', row['signal']), axis=1)
+        
+        print(df.tail())
+        
+    except Exception as e:
+        logging.error("An error occurred during the main execution: %s", e)
+
+
+The main function coordinates the entire process:
+1. Synchronizes the system time.
+2. Initializes the exchange.
+3. Fetches market data.
+4. Calculates technical indicators.
+5. Generates trading signals.
+6. Executes trades based on the signals.
+Execution Block
+python
+Copy code
+if __name__ == "__main__":
+    main()
+
+
+This ensures that the main function runs only when the script is executed directly, not when imported as a module.
+Summary
+This script implements a basic trading bot for the Bybit exchange. It includes functions to initialize the exchange, fetch market data, calculate technical indicators, generate trading signals, and execute trades. Logging is used extensively to provide insights into the bot’s operations and to handle any errors that occur.
+
+
+SYNCHRONIZE_EXCHANGE.PY
+
+
+import ntplib
+import time
+import logging
+
+
+def synchronize_time(ntp_server='time.google.com', max_retries=3, backoff_factor=1):
+    """
+    Synchronize local time with an NTP server.
+
+
+    Args:
+        ntp_server (str): The NTP server to synchronize with. Default is 'time.google.com'.
+        max_retries (int): The maximum number of retry attempts. Default is 3.
+        backoff_factor (int): The exponential backoff factor for retrying. Default is 1.
+
+
+    Returns:
+        float: The time offset in seconds if synchronization is successful, otherwise 0.
+
+
+    """
+    client = ntplib.NTPClient()
+    retries = 0
+    while retries < max_retries:
+        try:
+            response = client.request(ntp_server)
+            offset = response.offset
+            logging.info("Time synchronized with %s. Offset: %s seconds", ntp_server, offset)
+            return offset
+        except ntplib.NTPException as e:
+            logging.warning("Failed to synchronize time on attempt %s with %s: %s", retries + 1, ntp_server, e)
+            retries += 1
+            time.sleep(backoff_factor * retries)  # Exponential backoff
+    logging.error("Max retries (%s) reached. Unable to synchronize time with %s.", max_retries, ntp_server)
+    return 0  # Return 0 offset if synchronization fails
+
+
+# Example usage
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+    offset = synchronize_time()
+    print("Time offset:", offset, "seconds")
+
+
+EXPLANATION : 
+
+
+The provided script defines a function to synchronize local time with an NTP server and retries the synchronization a specified number of times with exponential backoff if the initial attempt fails. Let's break down the script and understand its functionality:
+Synchronize Time with NTP Server
+Import Required Libraries
+python
+Copy code
+import ntplib
+import time
+import logging
+
+
+* ntplib: A library to interact with NTP (Network Time Protocol) servers.
+* time: Provides time-related functions.
+* logging: Python’s built-in logging module.
+Define the Synchronize Time Function
+python
+Copy code
+def synchronize_time(ntp_server='time.google.com', max_retries=3, backoff_factor=1):
+    """
+    Synchronize local time with an NTP server.
+
+
+    Args:
+        ntp_server (str): The NTP server to synchronize with. Default is 'time.google.com'.
+        max_retries (int): The maximum number of retry attempts. Default is 3.
+        backoff_factor (int): The exponential backoff factor for retrying. Default is 1.
+
+
+    Returns:
+        float: The time offset in seconds if synchronization is successful, otherwise 0.
+    """
+    client = ntplib.NTPClient()
+    retries = 0
+    while retries < max_retries:
+        try:
+            response = client.request(ntp_server)
+            offset = response.offset
+            logging.info("Time synchronized with %s. Offset: %s seconds", ntp_server, offset)
+            return offset
+        except ntplib.NTPException as e:
+            logging.warning("Failed to synchronize time on attempt %s with %s: %s", retries + 1, ntp_server, e)
+            retries += 1
+            time.sleep(backoff_factor * retries)  # Exponential backoff
+    logging.error("Max retries (%s) reached. Unable to synchronize time with %s.", max_retries, ntp_server)
+    return 0  # Return 0 offset if synchronization fails
+
+
+* Arguments:
+   * ntp_server: The NTP server to use for synchronization. Default is 'time.google.com'.
+   * max_retries: The maximum number of retries if synchronization fails. Default is 3.
+   * backoff_factor: The exponential backoff factor for retrying. Default is 1.
+* Functionality:
+   * An ntplib.NTPClient object is created to interact with the NTP server.
+   * The function tries to request the time from the specified NTP server.
+   * If successful, it logs the offset and returns it.
+   * If it fails, it retries up to max_retries times, waiting longer between each attempt (exponential backoff).
+Logging Configuration and Example Usage
+python
+Copy code
+# Example usage
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+    offset = synchronize_time()
+    print("Time offset:", offset, "seconds")
+
+
+* This section sets up the logging configuration to display INFO level messages and format them with the timestamp, log level, and message.
+* The synchronize_time function is called, and the returned offset is printed.
+Summary
+This script provides a robust method for synchronizing the local time with an NTP server, handling potential failures with retries and exponential backoff. It ensures that the system time is as accurate as possible, which is critical for time-sensitive applications such as trading bots.
+Integration with the Trading Bot
+To integrate this function into the trading bot script, replace the placeholder for time synchronization in the main function of the trading bot script:
+python
+Copy code
+def main():
+    """
+    Main function to orchestrate the workflow.
+    """
+    try:
+        time_offset = synchronize_time()
+        logging.info("Time synchronized with offset: %d", time_offset)
+        
+        exchange = initialize_exchange(API_KEY, API_SECRET)
+        
+        df = fetch_ohlcv(exchange, 'BTC/USDT', time_offset=time_offset)
+        df = calculate_indicators(df)
+        df = trading_strategy(df)
+        
+        df.apply(lambda row: execute_trade(exchange, 'BTC/USDT', row['signal']), axis=1)
+        
+        print(df.tail())
+        
+    except Exception as e:
+        logging.error("An error occurred during the main execution: %s", e)
+
+
+if __name__ == "__main__":
+    main()
+
+
+This ensures that the time synchronization is done properly before any trading operations are performed.
+
+
+RISK_MANAGEMENT.PY
+import ccxt
+import logging
+import pandas as pd
+from datetime import datetime, timedelta
+import os
+import ntplib
+
+
+# Setup logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+
+def synchronize_system_time():
+    """
+    Synchronize system time with an NTP server.
+    """
+    try:
+        response = ntplib.NTPClient().request('pool.ntp.org')
+        current_time = datetime.fromtimestamp(response.tx_time)
+        logging.info(f"System time synchronized: {current_time}")
+        return current_time
+    except Exception as e:
+        logging.error("Time synchronization failed: %s", e)
+        raise e
+
+
+def initialize_exchange(api_key, api_secret):
+    """
+    Initialize the exchange with the provided API key and secret.
+    """
+    try:
+        exchange = ccxt.bybit({
+            'apiKey': api_key,
+            'secret': api_secret,
+            'enableRateLimit': True,
+            'options': {'recvWindow': 10000}
+        })
+        logging.info("Initialized Bybit exchange")
+        return exchange
+    except Exception as e:
+        logging.error("Failed to initialize exchange: %s", e)
+        raise e
+
+
+def fetch_historical_data(exchange, symbol, timeframe='1h', limit=100):
+    """
+    Fetch historical OHLCV data for the specified symbol and timeframe.
+    """
+    try:
+        since = exchange.parse8601(exchange.iso8601(datetime.utcnow() - timedelta(days=limit)))
+        ohlcv = exchange.fetch_ohlcv(symbol, timeframe, since=since)
+        data = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+        data['timestamp'] = pd.to_datetime(data['timestamp'], unit='ms')
+        logging.info(f"Fetched historical data for {symbol}")
+        return data
+    except Exception as e:
+        logging.error("Failed to fetch historical data: %s", e)
+        raise e
+
+
+def calculate_technical_indicators(data):
+    """
+    Calculate technical indicators.
+    """
+    data['SMA_50'] = data['close'].rolling(window=50).mean()
+    data['SMA_200'] = data['close'].rolling(window=200).mean()
+    data['EMA_12'] = data['close'].ewm(span=12, adjust=False).mean()
+    data['EMA_26'] = data['close'].ewm(span=26, adjust=False).mean()
+    data['MACD'] = data['EMA_12'] - data['EMA_26']
+    data['MACD_signal'] = data['MACD'].ewm(span=9, adjust=False).mean()
+    data['RSI'] = calculate_rsi(data['close'], 14)
+    logging.info("Calculated technical indicators")
+    return data
+
+
+def calculate_rsi(series, period):
+    """
+    Calculate Relative Strength Index (RSI).
+    """
+    delta = series.diff(1)
+    gain = delta.where(delta > 0, 0)
+    loss = -delta.where(delta < 0, 0)
+    avg_gain = gain.rolling(window=period).mean()
+    avg_loss = loss.rolling(window=period).mean()
+    rs = avg_gain / avg_loss
+    rsi = 100 - (100 / (1 + rs))
+    return rsi
+
+
+def detect_patterns(data):
+    """
+    Detect patterns in the data.
+    """
+    data['HeadAndShoulders'] = detect_head_and_shoulders(data)
+    data['DoubleTop'] = detect_double_top(data)
+    logging.info("Detected patterns")
+    return data
+
+
+def detect_head_and_shoulders(data):
+    """
+    Detect the Head and Shoulders pattern in the data.
+    """
+    pattern = [0] * len(data)
+    for i in range(2, len(data) - 1):
+        if (data['high'][i - 2] < data['high'][i - 1] > data['high'][i] and
+            data['high'][i - 1] > data['high'][i + 1] and
+            data['low'][i - 2] > data['low'][i - 1] < data['low'][i] and
+            data['low'][i - 1] < data['low'][i + 1]):
+            pattern[i] = 1
+    return pattern
+
+
+def detect_double_top(data):
+    """
+    Detect the Double Top pattern in the data.
+    """
+    pattern = [0] * len(data)
+    for i in range(1, len(data) - 1):
+        if (data['high'][i - 1] < data['high'][i] > data['high'][i + 1] and
+            data['high'][i] == data['high'][i + 1]):
+            pattern[i] = 1
+    return pattern
+
+
+def place_order_with_risk_management(exchange, symbol, side, amount, stop_loss, take_profit):
+    """
+    Place an order with stop-loss and take-profit.
+    """
+    try:
+        order = exchange.create_order(symbol, 'market', side, amount)
+        logging.info(f"Market order placed: {order}")
+        
+        order_price = order.get('price')
+        if order_price:
+            stop_loss_price = order_price * (1 - stop_loss) if side == 'buy' else order_price * (1 + stop_loss)
+            
+            take_profit_price = order_price * (1 + take_profit) if side == 'buy' else order_price * (1 - take_profit)
+            
+            logging.info(f"Stop Loss: {stop_loss_price}, Take Profit: {take_profit_price}")
+            
+            if side == 'buy':
+                exchange.create_order(symbol, 'stop', 'sell', amount, stop_loss_price)
+                exchange.create_order(symbol, 'limit', 'sell', amount, take_profit_price)
+            else:
+                exchange.create_order(symbol, 'stop', 'buy', amount, stop_loss_price)
+                exchange.create_order(symbol, 'limit', 'buy', amount, take_profit_price)
+            
+        else:
+            logging.warning("Order price not available, cannot calculate stop-loss and take-profit.")
+    except ccxt.BaseError as e:
+        logging.error(f"An error occurred: {e}")
+
+
+def main():
+    api_key = os.getenv('BYBIT_API_KEY')
+    api_secret = os.getenv('BYBIT_API_SECRET')
+    
+    if not api_key or not api_secret:
+        logging.error("API key and secret must be set as environment variables")
+        return
+    
+    synchronize_system_time()
+    exchange = initialize_exchange(api_key, api_secret)
+    
+    symbol = 'BTC/USDT'
+    data = fetch_historical_data(exchange, symbol)
+    data = calculate_technical_indicators(data)
+    data = detect_patterns(data)
+
+
+    # Example of placing an order with stop-loss and take-profit
+    # Configure risk management parameters here
+    side = 'buy'
+    amount = 0.001
+    stop_loss = 0.01  # 1%
+    take_profit = 0.02  # 2%
+    
+    # Uncomment the line below to place a real order
+    # place_order_with_risk_management(exchange, symbol, side, amount, stop_loss, take_profit)
+
+
+if __name__ == "__main__":
+    main()
+
+
+EXPLANATION : 
+
+
+This comprehensive script handles various aspects of trading automation, including time synchronization, initializing the exchange, fetching historical data, calculating technical indicators, detecting trading patterns, and placing orders with risk management. Below is a detailed breakdown and an example usage of the script:
+1. Time Synchronization
+The synchronize_system_time function synchronizes the system time with an NTP server. Accurate time is crucial for trading algorithms to ensure the correctness of timestamped data.
+python
+Copy code
+def synchronize_system_time():
+    """
+    Synchronize system time with an NTP server.
+    """
+    try:
+        response = ntplib.NTPClient().request('pool.ntp.org')
+        current_time = datetime.fromtimestamp(response.tx_time)
+        logging.info(f"System time synchronized: {current_time}")
+        return current_time
+    except Exception as e:
+        logging.error("Time synchronization failed: %s", e)
+        raise e
+
+
+2. Exchange Initialization
+The initialize_exchange function initializes the exchange with API credentials.
+python
+Copy code
+def initialize_exchange(api_key, api_secret):
+    """
+    Initialize the exchange with the provided API key and secret.
+    """
+    try:
+        exchange = ccxt.bybit({
+            'apiKey': api_key,
+            'secret': api_secret,
+            'enableRateLimit': True,
+            'options': {'recvWindow': 10000}
+        })
+        logging.info("Initialized Bybit exchange")
+        return exchange
+    except Exception as e:
+        logging.error("Failed to initialize exchange: %s", e)
+        raise e
+
+
+3. Fetch Historical Data
+The fetch_historical_data function retrieves OHLCV data for the specified symbol and timeframe.
+python
+Copy code
+def fetch_historical_data(exchange, symbol, timeframe='1h', limit=100):
+    """
+    Fetch historical OHLCV data for the specified symbol and timeframe.
+    """
+    try:
+        since = exchange.parse8601(exchange.iso8601(datetime.utcnow() - timedelta(days=limit)))
+        ohlcv = exchange.fetch_ohlcv(symbol, timeframe, since=since)
+        data = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+        data['timestamp'] = pd.to_datetime(data['timestamp'], unit='ms')
+        logging.info(f"Fetched historical data for {symbol}")
+        return data
+    except Exception as e:
+        logging.error("Failed to fetch historical data: %s", e)
+        raise e
+
+
+4. Calculate Technical Indicators
+The calculate_technical_indicators function calculates SMA, EMA, MACD, and RSI indicators.
+python
+Copy code
+def calculate_technical_indicators(data):
+    """
+    Calculate technical indicators.
+    """
+    data['SMA_50'] = data['close'].rolling(window=50).mean()
+    data['SMA_200'] = data['close'].rolling(window=200).mean()
+    data['EMA_12'] = data['close'].ewm(span=12, adjust=False).mean()
+    data['EMA_26'] = data['close'].ewm(span=26, adjust=False).mean()
+    data['MACD'] = data['EMA_12'] - data['EMA_26']
+    data['MACD_signal'] = data['MACD'].ewm(span=9, adjust=False).mean()
+    data['RSI'] = calculate_rsi(data['close'], 14)
+    logging.info("Calculated technical indicators")
+    return data
+
+
+def calculate_rsi(series, period):
+    """
+    Calculate Relative Strength Index (RSI).
+    """
+    delta = series.diff(1)
+    gain = delta.where(delta > 0, 0)
+    loss = -delta.where(delta < 0, 0)
+    avg_gain = gain.rolling(window=period).mean()
+    avg_loss = loss.rolling(window=period).mean()
+    rs = avg_gain / avg_loss
+    rsi = 100 - (100 / (1 + rs))
+    return rsi
+
+
+5. Pattern Detection
+The detect_patterns function identifies head and shoulders and double top patterns.
+python
+Copy code
+def detect_patterns(data):
+    """
+    Detect patterns in the data.
+    """
+    data['HeadAndShoulders'] = detect_head_and_shoulders(data)
+    data['DoubleTop'] = detect_double_top(data)
+    logging.info("Detected patterns")
+    return data
+
+
+def detect_head_and_shoulders(data):
+    """
+    Detect the Head and Shoulders pattern in the data.
+    """
+    pattern = [0] * len(data)
+    for i in range(2, len(data) - 1):
+        if (data['high'][i - 2] < data['high'][i - 1] > data['high'][i] and
+            data['high'][i - 1] > data['high'][i + 1] and
+            data['low'][i - 2] > data['low'][i - 1] < data['low'][i] and
+            data['low'][i - 1] < data['low'][i + 1]):
+            pattern[i] = 1
+    return pattern
+
+
+def detect_double_top(data):
+    """
+    Detect the Double Top pattern in the data.
+    """
+    pattern = [0] * len(data)
+    for i in range(1, len(data) - 1):
+        if (data['high'][i - 1] < data['high'][i] > data['high'][i + 1] and
+            data['high'][i] == data['high'][i + 1]):
+            pattern[i] = 1
+    return pattern
+
+
+6. Place Orders with Risk Management
+The place_order_with_risk_management function places market orders with stop-loss and take-profit levels.
+python
+Copy code
+def place_order_with_risk_management(exchange, symbol, side, amount, stop_loss, take_profit):
+    """
+    Place an order with stop-loss and take-profit.
+    """
+    try:
+        order = exchange.create_order(symbol, 'market', side, amount)
+        logging.info(f"Market order placed: {order}")
+        
+        order_price = order.get('price')
+        if order_price:
+            stop_loss_price = order_price * (1 - stop_loss) if side == 'buy' else order_price * (1 + stop_loss)
+            
+            take_profit_price = order_price * (1 + take_profit) if side == 'buy' else order_price * (1 - take_profit)
+            
+            logging.info(f"Stop Loss: {stop_loss_price}, Take Profit: {take_profit_price}")
+            
+            if side == 'buy':
+                exchange.create_order(symbol, 'stop', 'sell', amount, stop_loss_price)
+                exchange.create_order(symbol, 'limit', 'sell', amount, take_profit_price)
+            else:
+                exchange.create_order(symbol, 'stop', 'buy', amount, stop_loss_price)
+                exchange.create_order(symbol, 'limit', 'buy', amount, take_profit_price)
+            
+        else:
+            logging.warning("Order price not available, cannot calculate stop-loss and take-profit.")
+    except ccxt.BaseError as e:
+        logging.error(f"An error occurred: {e}")
+
+
+7. Main Function
+The main function orchestrates the workflow, including initializing the exchange, fetching data, calculating indicators, detecting patterns, and placing orders.
+python
+Copy code
+def main():
+    api_key = os.getenv('BYBIT_API_KEY')
+    api_secret = os.getenv('BYBIT_API_SECRET')
+    
+    if not api_key or not api_secret:
+        logging.error("API key and secret must be set as environment variables")
+        return
+    
+    synchronize_system_time()
+    exchange = initialize_exchange(api_key, api_secret)
+    
+    symbol = 'BTC/USDT'
+    data = fetch_historical_data(exchange, symbol)
+    data = calculate_technical_indicators(data)
+    data = detect_patterns(data)
+
+
+    # Example of placing an order with stop-loss and take-profit
+    # Configure risk management parameters here
+    side = 'buy'
+    amount = 0.001
+    stop_loss = 0.01  # 1%
+    take_profit = 0.02  # 2%
+    
+    # Uncomment the line below to place a real order
+    # place_order_with_risk_management(exchange, symbol, side, amount, stop_loss, take_profit)
+
+
+if __name__ == "__main__":
+    main()
+
+
+Summary
+This script is designed for automated trading on the Bybit exchange. It includes robust error handling and logging to ensure that any issues are promptly identified and addressed. Make sure to replace 'YOUR_API_KEY' and 'YOUR_API_SECRET' with your actual Bybit API credentials, and carefully test the script in a safe environment before deploying it for live trading.
+
+
+PLACING_ORDER.PY
+
+
+import ccxt
+import pandas as pd
+import logging
+import time
+
+
+# Setup logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+
+def initialize_exchange(api_key, api_secret):
+    """
+    Initialize the exchange with API key and secret.
+    """
+    try:
+        exchange = ccxt.bybit({
+            'apiKey': api_key,
+            'secret': api_secret,
+            'enableRateLimit': True,
+        })
+        logging.info("Initialized Bybit exchange")
+        return exchange
+    except Exception as e:
+        logging.error("Failed to initialize exchange: %s", e)
+        raise e
+
+
+def fetch_ohlcv(exchange, symbol, timeframe='1h', limit=100):
+    """
+    Fetch OHLCV data.
+    """
+    try:
+        params = {'recvWindow': 10000}
+        ohlcv = exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit, params=params)
+        df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+        df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+        logging.info("Fetched OHLCV data")
+        return df
+    except ccxt.BaseError as e:
+        logging.error("Failed to fetch OHLCV data: %s", e)
+        raise e
+
+
+def trading_strategy(df):
+    """
+    Define the trading strategy.
+    """
+    signals = ['hold']
+    for i in range(1, len(df)):
+        if df['SMA_50'][i] > df['SMA_200'][i] and df['SMA_50'][i-1] <= df['SMA_200'][i-1]:
+            signals.append('buy')
+        elif df['SMA_50'][i] < df['SMA_200'][i] and df['SMA_50'][i-1] >= df['SMA_200'][i-1]:
+            signals.append('sell')
+        else:
+            signals.append('hold')
+    df['signal'] = signals
+    logging.info("Applied trading strategy")
+    return df
+
+
+def place_order(exchange, symbol, order_type, side, amount, price=None):
+    """
+    Place an order on the exchange.
+    """
+    try:
+        if order_type == 'market':
+            order_params = {'type': order_type}
+        else:
+            order_params = {'type': order_type, 'price': price}
+        
+        order = exchange.create_order(symbol, side, amount, **order_params)
+        logging.info("Placed order: %s", order)
+        return order
+    except ccxt.InsufficientFunds as insf:
+        logging.error("Insufficient funds: %s", insf)
+    except ccxt.InvalidOrder as invord:
+        logging.error("Invalid order: %s", invord)
+    except ccxt.NetworkError as neterr:
+        logging.error("Network error: %s", neterr)
+    except ccxt.BaseError as e:
+        logging.error("An error occurred: %s", e)
+
+
+def execute_trading_strategy(exchange, df, symbol):
+    """
+    Execute the trading strategy based on signals.
+    """
+    for i in range(len(df)):
+        if df['signal'][i] == 'buy':
+            logging.info("Buy Signal - Placing Buy Order")
+            # Uncomment the following line to actually place the order
+            # place_order(exchange, symbol, 'market', 'buy', 0.001)
+        elif df['signal'][i] == 'sell':
+            logging.info("Sell Signal - Placing Sell Order")
+            # Uncomment the following line to actually place the order
+            # place_order(exchange, symbol, 'market', 'sell', 0.001)
+
+
+def main():
+    """
+    Main function to execute the trading strategy.
+    """
+    api_key = 'YOUR_API_KEY'
+    api_secret = 'YOUR_API_SECRET'
+    symbol = 'BTC/USDT'
+    
+    try:
+        # Initialize exchange
+        exchange = initialize_exchange(api_key, api_secret)
+        
+        # Fetch historical data
+        df = fetch_ohlcv(exchange, symbol)
+        
+        # Calculate technical indicators
+        df['SMA_50'] = df['close'].rolling(window=50).mean()
+        df['SMA_200'] = df['close'].rolling(window=200).mean()
+        
+        # Apply trading strategy
+        df = trading_strategy(df)
+        
+        # Execute trading strategy
+        execute_trading_strategy(exchange, df, symbol)
+                
+    except ccxt.NetworkError as e:
+        logging.error("A network error occurred: %s", e)
+    except ccxt.BaseError as e:
+        logging.error("An error occurred: %s", e)
+
+
+if __name__ == "__main__":
+    main()
+
+
+EXPLANATION : 
+Your script looks well-structured and handles various aspects of automated trading, including initializing the exchange, fetching OHLCV data, defining a trading strategy, placing orders, and executing the strategy. However, there are a few improvements and considerations to make:
+1. Error Handling: Ensure robust error handling for potential exceptions that may occur during API calls, such as network errors, insufficient funds, or invalid orders. Your script already includes some error handling, but you might want to handle specific exceptions more gracefully.
+2. Logging: Logging is crucial for monitoring the behavior of the trading bot and diagnosing issues. Consider logging additional information such as order IDs, timestamps, and specific reasons for errors to facilitate troubleshooting.
+3. Risk Management: Implement risk management measures such as position sizing, stop-loss orders, and take-profit targets to manage potential losses and maximize profits. Currently, your script doesn't include explicit risk management strategies.
+4. Backtesting: Before deploying your trading bot in a live environment, it's essential to backtest your trading strategy using historical data to evaluate its performance and adjust parameters if necessary.
+5. Parameterization: Parameterize constants such as API keys, symbols, and trading amounts to make your script more flexible and reusable across different configurations.
+6. Throttling: Take into account rate limits imposed by the exchange's API to avoid exceeding them, which could result in temporary bans or restrictions on your account.
+7. Integration with External Libraries: Consider integrating your trading bot with external libraries or services for additional functionality, such as machine learning models for predicting price movements or sentiment analysis tools for market sentiment analysis.
+By addressing these points and continuously iterating on your trading bot, you can enhance its reliability, effectiveness, and profitability in real-world trading scenarios.
+
+
+FETCH_DATA.PY
+
+
+import ccxt
+import pandas as pd
+import logging
+import pandas_ta as ta
+from typing import Tuple, List
+from datetime import datetime
+import time
+
+
+# Set up logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+
+def synchronize_time_with_exchange(exchange: ccxt.Exchange) -> int:
+    """
+    Synchronize the local system time with the exchange server time.
+    
+    Args:
+    - exchange: ccxt.Exchange object
+    
+    Returns:
+    - time_offset: Time offset in milliseconds
+    """
+    try:
+        server_time = exchange.milliseconds()
+        local_time = int(time.time() * 1000)
+        time_offset = server_time - local_time
+        logging.info("Time synchronized with exchange. Offset: %d milliseconds", time_offset)
+        return time_offset
+    except ccxt.BaseError as sync_error:
+        logging.error("Failed to synchronize time with exchange: %s", sync_error)
+        raise sync_error
+
+
+def fetch_ohlcv(exchange: ccxt.Exchange, symbol: str, timeframe: str = '1h', limit: int = 100) -> pd.DataFrame:
+    """
+    Fetch OHLCV data for a given symbol and timeframe from the exchange.
+    
+    Args:
+    - exchange: ccxt.Exchange object
+    - symbol: Trading pair symbol (e.g., 'BTC/USDT')
+    - timeframe: Timeframe for OHLCV data (default: '1h')
+    - limit: Number of data points to fetch (default: 100)
+    
+    Returns:
+    - df: DataFrame containing OHLCV data
+    """
+    try:
+        # Fetch OHLCV data
+        params = {
+            'recvWindow': 10000,  # Adjust recvWindow as needed
+            'timestamp': exchange.milliseconds() + synchronize_time_with_exchange(exchange)
+        }
+        ohlcv = exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit, params=params)
+        df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+        df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+        logging.info("Fetched OHLCV data for %s", symbol)
+        
+        return df
+    except ccxt.BaseError as ccxt_error:
+        logging.error("An error occurred while fetching OHLCV data: %s", ccxt_error)
+        raise ccxt_error
+
+
+def perform_technical_analysis(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Perform technical analysis on the OHLCV data DataFrame.
+    
+    Args:
+    - df: DataFrame containing OHLCV data
+    
+    Returns:
+    - df: DataFrame with added technical indicators
+    """
+    try:
+        # Adding technical indicators
+        df.ta.sma(length=20, append=True)
+        df.ta.sma(length=50, append=True)
+        df.ta.rsi(length=14, append=True)
+        df.ta.macd(fast=12, slow=26, signal=9, append=True)
+        
+        # Log detected patterns
+        logging.info("Calculated SMA, RSI, and MACD indicators")
+        
+        # Detecting bullish or bearish signals
+        detect_signals(df)
+        
+        return df
+    except Exception as e:
+        logging.error("An error occurred during technical analysis: %s", e)
+        raise e
+
+
+def detect_signals(df: pd.DataFrame) -> None:
+    """
+    Detect bullish or bearish signals in the OHLCV data.
+    
+    Args:
+    - df: DataFrame containing OHLCV data
+    """
+    try:
+        # Example signal detection for educational purposes
+        latest = df.iloc[-1]
+        previous = df.iloc[-2]
+        
+        # Simple crossover strategy
+        if previous['SMA_20'] < previous['SMA_50'] and latest['SMA_20'] > latest['SMA_50']:
+            logging.info("Bullish crossover detected")
+        elif previous['SMA_20'] > previous['SMA_50'] and latest['SMA_20'] < latest['SMA_50']:
+            logging.info("Bearish crossover detected")
+        
+        # RSI Overbought/Oversold
+        if latest['RSI'] > 70:
+            logging.info("RSI indicates overbought conditions")
+        elif latest['RSI'] < 30:
+            logging.info("RSI indicates oversold conditions")
+        
+        # MACD Bullish/Bearish signal
+        if previous['MACD'] < previous['MACD_signal'] and latest['MACD'] > latest['MACD_signal']:
+            logging.info("Bullish MACD crossover detected")
+        elif previous['MACD'] > previous['MACD_signal'] and latest['MACD'] < latest['MACD_signal']:
+            logging.info("Bearish MACD crossover detected")
+        
+    except Exception as e:
+        logging.error("An error occurred during signal detection: %s", e)
+        raise e
+
+
+# Example usage
+if __name__ == "__main__":
+    # Replace 'YOUR_API_KEY' and 'YOUR_API_SECRET' with your actual API credentials
+    api_key = 'YOUR_API_KEY'
+    api_secret = 'YOUR_API_SECRET'
+    
+    # Initialize the Bybit exchange
+    exchange = ccxt.bybit({
+        'apiKey': api_key,
+        'secret': api_secret,
+        'enableRateLimit': True,  # This helps to avoid rate limit errors
+    })
+
+
+    try:
+        # Fetch data
+        symbol = 'BTC/USDT'
+        df = fetch_ohlcv(exchange, symbol)
+
+
+        # Print first few rows of data
+        print(df.head())
+    except ccxt.NetworkError as net_error:
+        logging.error("A network error occurred: %s", net_error)
+        # Retry or handle the error as needed
+    except ccxt.BaseError as error:
+        logging.error("An error occurred: %s", error)
+
+
+EXPLANATION : 
+
+
+Your code is well-structured and easy to follow. Here are some suggestions and improvements:
+1. Function Documentation: The function documentation (docstrings) is clear and informative. It helps other developers understand each function's purpose, arguments, and return values.
+2. Type Hints: The use of type hints (ccxt.Exchange, pd.DataFrame, etc.) improves code readability and enables static type checkers to catch errors early. Ensure that all parameters and return types are properly annotated.
+3. Error Handling: Your code includes error handling for potential exceptions, which is crucial when dealing with network requests and data processing. Consider handling specific exceptions more explicitly to provide better error messages or take different actions based on the error type.
+4. Modularization: Your code is modular, with functions responsible for specific tasks like fetching data, performing technical analysis, and detecting signals. This modular approach makes the code more maintainable and reusable.
+5. Logging: Logging is implemented effectively for providing information and error messages. You could consider adding more detailed logging messages or logging levels (INFO, DEBUG) for different levels of detail.
+6. Signal Detection: The detect_signals function effectively detects bullish or bearish signals based on technical indicators like moving averages, RSI, and MACD. Ensure that the signal detection logic is accurate and comprehensive for your trading strategy.
+7. Configuration Management: Avoid hardcoding sensitive information like API keys and secrets directly into the script. Consider using environment variables or configuration files to manage these credentials securely.
+8. Retry Mechanism: In the exception handling, you've logged network errors (ccxt.NetworkError). Implementing a retry mechanism for network-related errors can improve the robustness of your script, especially in unreliable network conditions.
+9. Unit Testing: Consider writing unit tests for critical functions, especially those involving data fetching, technical analysis, and signal detection. Unit tests can help ensure that each function behaves as expected and catches regressions during code changes.
+Overall, your code is well-written and demonstrates a good understanding of interacting with exchange APIs and performing technical analysis for trading purposes. Keep up the good work, and feel free to reach out if you need further assistance or guidance!
+
+
+BACKTESTING.PY
+
+
+import ccxt
+import pandas as pd
+import pandas_ta as ta
+import logging
+
+
+# Set up logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+
+def synchronize_time_with_exchange(exchange):
+    try:
+        server_time = exchange.milliseconds()
+        local_time = pd.Timestamp.now().timestamp() * 1000
+        time_offset = server_time - local_time
+        logging.info("Time synchronized with exchange. Offset: %d milliseconds", time_offset)
+        return time_offset
+    except ccxt.BaseError as sync_error:
+        logging.error("Failed to synchronize time with exchange: %s", sync_error)
+        raise sync_error
+
+
+def fetch_data(exchange, symbol='BTC/USDT', timeframe='1h', limit=100):
+    try:
+        # Synchronize time with exchange
+        time_offset = synchronize_time_with_exchange(exchange)
+        
+        # Fetch OHLCV data
+        params = {'recvWindow': 10000, 'timestamp': exchange.milliseconds() + time_offset}
+        ohlcv = exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit, params=params)
+        df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+        df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+        logging.info("Fetched OHLCV data for %s", symbol)
+        
+        return df
+    except ccxt.BaseError as ccxt_error:
+        logging.error("An error occurred while fetching data: %s", ccxt_error)
+        raise ccxt_error
+
+
+def perform_technical_analysis(df, sma_short=20, sma_long=50, rsi_period=14, macd_fast=12, macd_slow=26, macd_signal=9):
+    try:
+        # Adding technical indicators
+        df.ta.sma(length=sma_short, append=True)
+        df.ta.sma(length=sma_long, append=True)
+        df.ta.rsi(length=rsi_period, append=True)
+        df.ta.macd(fast=macd_fast, slow=macd_slow, signal=macd_signal, append=True)
+        
+        # Log detected patterns
+        logging.info("Calculated SMA, RSI, and MACD indicators")
+        
+        # Detecting bullish or bearish signals
+        detect_signals(df)
+        
+        return df
+    except Exception as e:
+        logging.error("An error occurred during technical analysis: %s", e)
+        raise e
+
+
+def detect_signals(df, sma_short=20, sma_long=50):
+    try:
+        # Example signal detection for educational purposes
+        latest = df.iloc[-1]
+        previous = df.iloc[-2]
+        
+        # Simple crossover strategy
+        if previous['SMA_{}'.format(sma_short)] < previous['SMA_{}'.format(sma_long)] and latest['SMA_{}'.format(sma_short)] > latest['SMA_{}'.format(sma_long)]:
+            logging.info("Bullish crossover detected")
+        elif previous['SMA_{}'.format(sma_short)] > previous['SMA_{}'.format(sma_long)] and latest['SMA_{}'.format(sma_short)] < latest['SMA_{}'.format(sma_long)]:
+            logging.info("Bearish crossover detected")
+        
+        # RSI Overbought/Oversold
+        if latest['RSI'] > 70:
+            logging.info("RSI indicates overbought conditions")
+        elif latest['RSI'] < 30:
+            logging.info("RSI indicates oversold conditions")
+        
+        # MACD Bullish/Bearish signal
+        if previous['MACD'] < previous['MACD_signal'] and latest['MACD'] > latest['MACD_signal']:
+            logging.info("Bullish MACD crossover detected")
+        elif previous['MACD'] > previous['MACD_signal'] and latest['MACD'] < latest['MACD_signal']:
+            logging.info("Bearish MACD crossover detected")
+        
+    except Exception as e:
+        logging.error("An error occurred during signal detection: %s", e)
+        raise e
+
+
+def backtest_strategy(df, starting_capital=10000, rsi_oversold=30, rsi_overbought=70):
+    try:
+        # Define backtesting logic here
+        logging.info("Backtesting the trading strategy")
+        
+        capital = starting_capital  # Starting capital
+        position = 0  # Initial position
+        entry_price = 0  # Price at which position was entered
+        pnl = 0  # Profit and Loss
+        trades = []  # Store trade details
+        
+        for i in range(1, len(df)):
+            if df['RSI'][i] < rsi_oversold and position == 0:  # RSI is oversold and no position
+                position = capital / df['close'][i]  # Buy position
+                entry_price = df['close'][i]
+                capital = 0
+                trades.append({'type': 'buy', 'price': entry_price})
+                logging.info("Buy at %s", entry_price)
+            elif df['RSI'][i] > rsi_overbought and position > 0:  # RSI is overbought and long position exists
+                capital = position * df['close'][i]  # Sell position
+                pnl += (df['close'][i] - entry_price) * position
+                position = 0
+                trades.append({'type': 'sell', 'price': df['close'][i], 'pnl': pnl})
+                logging.info("Sell at %s | P&L: %s", df['close'][i], pnl)
+        
+        logging.info("Backtesting completed")
+        logging.info("Final capital: %s", capital)
+        logging.info("Total P&L: %s", pnl)
+        logging.info("Trades: %s", trades)
+    except Exception as e:
+        logging.error("An error occurred during backtesting: %s", e)
+        raise e
+
+
+# Example usage
+if __name__ == "__main__":
+    # Replace 'YOUR_API_KEY' and 'YOUR_API_SECRET' with your actual API credentials
+    api_key = 'YOUR_API_KEY'
+    api_secret = 'YOUR_API_SECRET'
+    
+    # Initialize the Bybit exchange
+    exchange = ccxt.bybit({
+        'apiKey': api_key,
+        'secret': api_secret,
+        'enableRateLimit': True,  # This helps to avoid rate limit errors
+    })
+
+
+    try:
+        # Fetch data
+        df = fetch_data(exchange)
+
+
+        # Perform technical analysis
+        df = perform_technical_analysis(df)
+
+
+        # Backtest trading strategy
+        backtest_strategy(df)
+    except ccxt.NetworkError as net_error:
+        logging.error("A network error occurred: %s", net_error)
+        # Retry or handle the error as needed
+    except ccxt.BaseError as error:
+        logging.error("An error occurred: %s", error)
+
+
+EXPLANATION : 
+Your code looks well-structured and implements various functionalities for fetching data, performing technical analysis, detecting signals, and backtesting a trading strategy. Here are some suggestions for improvement:
+1. Parameterize Configuration: Instead of hardcoding API keys and secrets in the script, consider using environment variables or configuration files to store sensitive information securely.
+2. Error Handling: You've implemented error handling for ccxt.BaseError and ccxt.NetworkError, which is great. Ensure that you handle other potential errors gracefully, providing informative error messages and possibly retrying failed requests based on the error type.
+3. Modularize and Reusability: Your code is already modular, but you could further enhance reusability by encapsulating functionalities into reusable functions or classes. For example, you could create a class for the trading strategy with methods for backtesting, live trading, etc.
+4. Optimization: Depending on the size of your dataset and the complexity of technical analysis, you might encounter performance issues. Look for opportunities to optimize your code, such as avoiding unnecessary loops or computations.
+5. Parameterize Technical Indicators: Consider parameterizing the lengths of moving averages, RSI periods, MACD parameters, etc., so users can experiment with different values without modifying the code.
+6. Logging: Your logging configuration is well-done. Ensure that log messages are informative and provide enough context for debugging and troubleshooting.
+7. Testing: Write unit tests for critical functions, especially those involving data fetching, technical analysis, and signal detection. Unit tests can help ensure that each function behaves as expected and catches regressions during code changes.
+8. Documentation: Add docstrings to your functions to describe their purpose, parameters, and return values. This will make your code more understandable and maintainable, especially for collaborators or future reference.
+Overall, your script is structured nicely and provides a good foundation for building and testing trading strategies. Keep up the good work! If you have any questions or need further assistance, feel free to ask.
+
+
+
+
+
+
+OVERALL EXPLANATIONS : 
+
+
+Sure! Let's break down the provided codes one by one, explaining what each code does:
+1. Synchronize Exchange Time:
+   * This code synchronizes the local system time with an NTP (Network Time Protocol) server. It defines a function synchronize_time that attempts to synchronize the system time with the provided NTP server. If successful, it returns the time offset between the server and the local system in milliseconds.
+2. Trading Bot Initialization:
+   * This script initializes a trading bot for the Bybit exchange. It contains functions to initialize the exchange, fetch OHLCV (Open, High, Low, Close, Volume) data, calculate technical indicators, define a trading strategy based on the indicators, and execute trades.
+3. Technical Analysis and Trading Strategy:
+   * This code defines functions to initialize the Bybit exchange, fetch historical OHLCV data, calculate technical indicators such as Simple Moving Averages (SMA), Exponential Moving Averages (EMA), Relative Strength Index (RSI), and Moving Average Convergence Divergence (MACD). It also defines a trading strategy based on these indicators and executes trades accordingly.
+4. Synchronize Time and Fetch Historical Data:
+   * This script synchronizes the local system time with an NTP server and fetches historical OHLCV data from the Bybit exchange. It defines functions to synchronize the time, initialize the exchange, fetch historical data, calculate technical indicators, and execute trading signals based on the indicators.
+5. Trading Strategy Execution:
+   * This code initializes the Bybit exchange, fetches historical OHLCV data, calculates technical indicators such as Simple Moving Averages (SMA), Relative Strength Index (RSI), and Moving Average Convergence Divergence (MACD). It defines a trading strategy based on these indicators and executes buy/sell orders accordingly.
+6. Technical Analysis and Signal Detection:
+   * This script synchronizes the local system time with the exchange server, fetches historical OHLCV data, calculates technical indicators (SMA, RSI, MACD), and detects bullish or bearish signals based on these indicators.
+7. Data Fetching, Technical Analysis, and Backtesting:
+   * This code synchronizes the local system time with the exchange server, fetches historical OHLCV data, performs technical analysis (calculates SMA, RSI, MACD), detects trading signals, and backtests a trading strategy based on predefined conditions.
+8. Data Fetching, Technical Analysis, Signal Detection, and Backtesting:
+   * This script fetches OHLCV data from the Bybit exchange, performs technical analysis (calculates SMA, RSI, MACD), detects bullish or bearish signals based on these indicators, and backtests a trading strategy to evaluate its performance.
+Each of these scripts or code segments focuses on different aspects of algorithmic trading, including data fetching, technical analysis, signal detection, strategy implementation, and backtesting. When combined, they form a comprehensive framework for developing and testing trading strategies on cryptocurrency markets.
