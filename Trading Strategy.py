@@ -1,29 +1,27 @@
 import ccxt
 import pandas as pd
-import time
 import logging
-import ta
 import os
+import time
 from synchronize_exchange_time import synchronize_time
+import ta
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# Setup environment variables for API credentials
+# Environment variables for API credentials
 API_KEY = os.getenv('BYBIT_API_KEY')
 API_SECRET = os.getenv('BYBIT_API_SECRET')
 
-if not API_KEY or not API_SECRET:
-    logging.error("API key and secret must be set as environment variables")
-    exit(1)
-
-# Initialize the Bybit exchange
 def initialize_exchange(api_key, api_secret):
+    """
+    Initialize the Bybit exchange.
+    """
     try:
         exchange = ccxt.bybit({
             'apiKey': api_key,
             'secret': api_secret,
-            'enableRateLimit': True,  # This helps to avoid rate limit errors
+            'enableRateLimit': True,
         })
         logging.info("Initialized Bybit exchange")
         return exchange
@@ -31,10 +29,12 @@ def initialize_exchange(api_key, api_secret):
         logging.error("Failed to initialize exchange: %s", e)
         raise e
 
-# Function to fetch historical data
 def fetch_ohlcv(exchange, symbol, timeframe='1h', limit=100, time_offset=0):
+    """
+    Fetch OHLCV data from the exchange.
+    """
     params = {
-        'recvWindow': 10000,  # Increased to 10000 milliseconds (10 seconds)
+        'recvWindow': 10000,
         'timestamp': int(time.time() * 1000 + time_offset)
     }
     try:
@@ -47,7 +47,6 @@ def fetch_ohlcv(exchange, symbol, timeframe='1h', limit=100, time_offset=0):
         logging.error("Error fetching OHLCV data: %s", e)
         raise e
 
-# Function to calculate indicators
 def calculate_indicators(df):
     """
     Calculate technical indicators using pandas_ta library.
@@ -65,13 +64,15 @@ def calculate_indicators(df):
         raise e
     return df
 
-# Define the trading strategy
-def trading_strategy(df):
+def trading_strategy(df, sma_short=50, sma_long=200):
+    """
+    Define the trading strategy based on SMA crossover.
+    """
     signals = ['hold']  # Initialize with 'hold' for the first entry
     for i in range(1, len(df)):
-        if df['SMA_50'][i] > df['SMA_200'][i] and df['SMA_50'][i-1] <= df['SMA_200'][i-1]:
+        if df['SMA_' + str(sma_short)][i] > df['SMA_' + str(sma_long)][i] and df['SMA_' + str(sma_short)][i-1] <= df['SMA_' + str(sma_long)][i-1]:
             signals.append('buy')
-        elif df['SMA_50'][i] < df['SMA_200'][i] and df['SMA_50'][i-1] >= df['SMA_200'][i-1]:
+        elif df['SMA_' + str(sma_short)][i] < df['SMA_' + str(sma_long)][i] and df['SMA_' + str(sma_short)][i-1] >= df['SMA_' + str(sma_long)][i-1]:
             signals.append('sell')
         else:
             signals.append('hold')
@@ -79,12 +80,10 @@ def trading_strategy(df):
     logging.info("Defined trading strategy")
     return df
 
-# Function to execute trades
-def execute_trade(exchange, symbol, signal):
+def execute_trade(exchange, symbol, signal, amount=1):
     """
     Execute trades based on signals.
     """
-    amount = 1  # Placeholder amount for demonstration purposes
     try:
         if signal == 'buy':
             logging.info("Executing Buy Order")
@@ -96,19 +95,22 @@ def execute_trade(exchange, symbol, signal):
         logging.error(f"Error executing {signal} order: {e}")
         raise e
 
-# Main function to orchestrate the workflow
 def main():
     try:
-        # Attempt time synchronization
+        # Synchronize time with NTP server
         time_offset = synchronize_time()
         logging.info("Time synchronized with offset: %d", time_offset)
         
         # Initialize exchange
         exchange = initialize_exchange(API_KEY, API_SECRET)
         
-        # Fetch data, calculate indicators, and apply strategy
+        # Fetch OHLCV data
         df = fetch_ohlcv(exchange, 'BTC/USDT', time_offset=time_offset)
+        
+        # Calculate technical indicators
         df = calculate_indicators(df)
+        
+        # Define trading strategy
         df = trading_strategy(df)
         
         # Execute trades based on signals
@@ -121,6 +123,5 @@ def main():
     except Exception as e:
         logging.error("An error occurred during the main execution: %s", e)
 
-# Run the main function
 if __name__ == "__main__":
     main()

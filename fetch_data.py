@@ -4,7 +4,7 @@ import logging
 import pandas_ta as ta
 from typing import Tuple, List
 from datetime import datetime
-import time
+import os
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -21,7 +21,7 @@ def synchronize_time_with_exchange(exchange: ccxt.Exchange) -> int:
     """
     try:
         server_time = exchange.milliseconds()
-        local_time = int(time.time() * 1000)
+        local_time = int(datetime.now().timestamp() * 1000)
         time_offset = server_time - local_time
         logging.info("Time synchronized with exchange. Offset: %d milliseconds", time_offset)
         return time_offset
@@ -43,10 +43,13 @@ def fetch_ohlcv(exchange: ccxt.Exchange, symbol: str, timeframe: str = '1h', lim
     - df: DataFrame containing OHLCV data
     """
     try:
+        # Synchronize time with exchange
+        time_offset = synchronize_time_with_exchange(exchange)
+        
         # Fetch OHLCV data
         params = {
             'recvWindow': 10000,  # Adjust recvWindow as needed
-            'timestamp': exchange.milliseconds() + synchronize_time_with_exchange(exchange)
+            'timestamp': exchange.milliseconds() + time_offset
         }
         ohlcv = exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit, params=params)
         df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
@@ -54,9 +57,15 @@ def fetch_ohlcv(exchange: ccxt.Exchange, symbol: str, timeframe: str = '1h', lim
         logging.info("Fetched OHLCV data for %s", symbol)
         
         return df
-    except ccxt.BaseError as ccxt_error:
-        logging.error("An error occurred while fetching OHLCV data: %s", ccxt_error)
-        raise ccxt_error
+    except ccxt.NetworkError as net_error:
+        logging.error("A network error occurred while fetching OHLCV data: %s", net_error)
+        raise net_error
+    except ccxt.ExchangeError as exchange_error:
+        logging.error("An exchange error occurred while fetching OHLCV data: %s", exchange_error)
+        raise exchange_error
+    except ccxt.BaseError as base_error:
+        logging.error("An unexpected error occurred while fetching OHLCV data: %s", base_error)
+        raise base_error
 
 def perform_technical_analysis(df: pd.DataFrame) -> pd.DataFrame:
     """
@@ -122,26 +131,40 @@ def detect_signals(df: pd.DataFrame) -> None:
 
 # Example usage
 if __name__ == "__main__":
-    # Replace 'YOUR_API_KEY' and 'YOUR_API_SECRET' with your actual API credentials
-    api_key = 'YOUR_API_KEY'
-    api_secret = 'YOUR_API_SECRET'
-    
-    # Initialize the Bybit exchange
-    exchange = ccxt.bybit({
-        'apiKey': api_key,
-        'secret': api_secret,
-        'enableRateLimit': True,  # This helps to avoid rate limit errors
-    })
-
     try:
+        # Retrieve API keys and secrets from environment variables
+        api_key = os.getenv('BYBIT_API_KEY')
+        api_secret = os.getenv('BYBIT_API_SECRET')
+
+        if not api_key or not api_secret:
+            raise ValueError("BYBIT_API_KEY or BYBIT_API_SECRET environment variables are not set.")
+
+        # Initialize the Bybit exchange
+        exchange = ccxt.bybit({
+            'apiKey': api_key,
+            'secret': api_secret,
+            'enableRateLimit': True,  # This helps to avoid rate limit errors
+        })
+
         # Fetch data
         symbol = 'BTC/USDT'
         df = fetch_ohlcv(exchange, symbol)
 
+        # Perform technical analysis
+        df = perform_technical_analysis(df)
+
         # Print first few rows of data
         print(df.head())
+    
     except ccxt.NetworkError as net_error:
         logging.error("A network error occurred: %s", net_error)
         # Retry or handle the error as needed
-    except ccxt.BaseError as error:
-        logging.error("An error occurred: %s", error)
+    except ccxt.ExchangeError as exchange_error:
+        logging.error("An exchange error occurred: %s", exchange_error)
+        # Handle the exchange-specific error
+    except ValueError as value_error:
+        logging.error("Value error occurred: %s", value_error)
+        # Handle missing environment variables or other value-related errors
+    except Exception as error:
+        logging.error("An unexpected error occurred: %s", error)
+        # Handle any other unexpected errors

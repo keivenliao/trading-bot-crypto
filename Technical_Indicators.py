@@ -54,6 +54,7 @@ def calculate_indicators(df):
     df['EMA_26'] = ta.ema(df['close'], length=26)
     df['MACD'], df['MACD_signal'], _ = ta.macd(df['close'], fast=12, slow=26, signal=9)
     df['RSI'] = ta.rsi(df['close'], length=14)
+    logging.info("Calculated technical indicators")
     return df
 
 def trading_strategy(df):
@@ -69,21 +70,31 @@ def trading_strategy(df):
         else:
             signals.append('hold')
     df['signal'] = signals
+    logging.info("Generated trading signals")
     return df
 
-def execute_trade(exchange, symbol, signal):
+def execute_trade(exchange, symbol, signal, amount=0.001):
     """
     Execute trades based on trading signals.
     """
-    amount = 0.001  # Define your trading amount here
-    if signal == 'buy':
-        logging.info("Executing Buy Order")
-        # Uncomment the following line to execute buy order
-        # exchange.create_market_buy_order(symbol, amount)
-    elif signal == 'sell':
-        logging.info("Executing Sell Order")
-        # Uncomment the following line to execute sell order
-        # exchange.create_market_sell_order(symbol, amount)
+    try:
+        if signal == 'buy':
+            logging.info("Executing Buy Order")
+            order = exchange.create_market_buy_order(symbol, amount)
+        elif signal == 'sell':
+            logging.info("Executing Sell Order")
+            order = exchange.create_market_sell_order(symbol, amount)
+        else:
+            logging.info("No trade action needed (hold signal)")
+            return
+        
+        if 'error' in order:
+            logging.error("Failed to execute order: %s", order['error'])
+        else:
+            logging.info("Order executed successfully: %s", order)
+            
+    except ccxt.BaseError as e:
+        logging.error("An error occurred during trade execution: %s", e)
 
 def main():
     """

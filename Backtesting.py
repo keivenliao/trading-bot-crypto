@@ -2,6 +2,7 @@ import ccxt
 import pandas as pd
 import pandas_ta as ta
 import logging
+import os
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -30,9 +31,15 @@ def fetch_data(exchange, symbol='BTC/USDT', timeframe='1h', limit=100):
         logging.info("Fetched OHLCV data for %s", symbol)
         
         return df
-    except ccxt.BaseError as ccxt_error:
-        logging.error("An error occurred while fetching data: %s", ccxt_error)
-        raise ccxt_error
+    except ccxt.NetworkError as net_error:
+        logging.error("A network error occurred while fetching data: %s", net_error)
+        raise net_error
+    except ccxt.ExchangeError as exchange_error:
+        logging.error("An exchange error occurred while fetching data: %s", exchange_error)
+        raise exchange_error
+    except ccxt.BaseError as base_error:
+        logging.error("An unexpected error occurred while fetching data: %s", base_error)
+        raise base_error
 
 def perform_technical_analysis(df, sma_short=20, sma_long=50, rsi_period=14, macd_fast=12, macd_slow=26, macd_signal=9):
     try:
@@ -116,18 +123,21 @@ def backtest_strategy(df, starting_capital=10000, rsi_oversold=30, rsi_overbough
 
 # Example usage
 if __name__ == "__main__":
-    # Replace 'YOUR_API_KEY' and 'YOUR_API_SECRET' with your actual API credentials
-    api_key = 'YOUR_API_KEY'
-    api_secret = 'YOUR_API_SECRET'
-    
-    # Initialize the Bybit exchange
-    exchange = ccxt.bybit({
-        'apiKey': api_key,
-        'secret': api_secret,
-        'enableRateLimit': True,  # This helps to avoid rate limit errors
-    })
-
     try:
+        # Retrieve API keys and secrets from environment variables
+        api_key = os.getenv('BYBIT_API_KEY')
+        api_secret = os.getenv('BYBIT_API_SECRET')
+
+        if not api_key or not api_secret:
+            raise ValueError("BYBIT_API_KEY or BYBIT_API_SECRET environment variables are not set.")
+
+        # Initialize the Bybit exchange
+        exchange = ccxt.bybit({
+            'apiKey': api_key,
+            'secret': api_secret,
+            'enableRateLimit': True,  # This helps to avoid rate limit errors
+        })
+
         # Fetch data
         df = fetch_data(exchange)
 
@@ -136,8 +146,16 @@ if __name__ == "__main__":
 
         # Backtest trading strategy
         backtest_strategy(df)
+    
     except ccxt.NetworkError as net_error:
         logging.error("A network error occurred: %s", net_error)
         # Retry or handle the error as needed
-    except ccxt.BaseError as error:
-        logging.error("An error occurred: %s", error)
+    except ccxt.ExchangeError as exchange_error:
+        logging.error("An exchange error occurred: %s", exchange_error)
+        # Handle the exchange-specific error
+    except ValueError as value_error:
+        logging.error("Value error occurred: %s", value_error)
+        # Handle missing environment variables or other value-related errors
+    except Exception as error:
+        logging.error("An unexpected error occurred: %s", error)
+        # Handle any other unexpected errors

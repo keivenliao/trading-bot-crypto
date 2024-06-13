@@ -57,61 +57,81 @@ def calculate_technical_indicators(data):
     """
     Calculate technical indicators.
     """
-    data['SMA_50'] = data['close'].rolling(window=50).mean()
-    data['SMA_200'] = data['close'].rolling(window=200).mean()
-    data['EMA_12'] = data['close'].ewm(span=12, adjust=False).mean()
-    data['EMA_26'] = data['close'].ewm(span=26, adjust=False).mean()
-    data['MACD'] = data['EMA_12'] - data['EMA_26']
-    data['MACD_signal'] = data['MACD'].ewm(span=9, adjust=False).mean()
-    data['RSI'] = calculate_rsi(data['close'], 14)
-    logging.info("Calculated technical indicators")
-    return data
+    try:
+        data['SMA_50'] = data['close'].rolling(window=50).mean()
+        data['SMA_200'] = data['close'].rolling(window=200).mean()
+        data['EMA_12'] = data['close'].ewm(span=12, adjust=False).mean()
+        data['EMA_26'] = data['close'].ewm(span=26, adjust=False).mean()
+        data['MACD'] = data['EMA_12'] - data['EMA_26']
+        data['MACD_signal'] = data['MACD'].ewm(span=9, adjust=False).mean()
+        data['RSI'] = calculate_rsi(data['close'], 14)
+        logging.info("Calculated technical indicators")
+        return data
+    except Exception as e:
+        logging.error("Failed to calculate technical indicators: %s", e)
+        raise e
 
 def calculate_rsi(series, period):
     """
     Calculate Relative Strength Index (RSI).
     """
-    delta = series.diff(1)
-    gain = delta.where(delta > 0, 0)
-    loss = -delta.where(delta < 0, 0)
-    avg_gain = gain.rolling(window=period).mean()
-    avg_loss = loss.rolling(window=period).mean()
-    rs = avg_gain / avg_loss
-    rsi = 100 - (100 / (1 + rs))
-    return rsi
+    try:
+        delta = series.diff(1)
+        gain = delta.where(delta > 0, 0)
+        loss = -delta.where(delta < 0, 0)
+        avg_gain = gain.rolling(window=period).mean()
+        avg_loss = loss.rolling(window=period).mean()
+        rs = avg_gain / avg_loss
+        rsi = 100 - (100 / (1 + rs))
+        return rsi
+    except Exception as e:
+        logging.error("Failed to calculate RSI: %s", e)
+        raise e
 
 def detect_patterns(data):
     """
     Detect patterns in the data.
     """
-    data['HeadAndShoulders'] = detect_head_and_shoulders(data)
-    data['DoubleTop'] = detect_double_top(data)
-    logging.info("Detected patterns")
-    return data
+    try:
+        data['HeadAndShoulders'] = detect_head_and_shoulders(data)
+        data['DoubleTop'] = detect_double_top(data)
+        logging.info("Detected patterns")
+        return data
+    except Exception as e:
+        logging.error("Failed to detect patterns: %s", e)
+        raise e
 
 def detect_head_and_shoulders(data):
     """
     Detect the Head and Shoulders pattern in the data.
     """
-    pattern = [0] * len(data)
-    for i in range(2, len(data) - 1):
-        if (data['high'][i - 2] < data['high'][i - 1] > data['high'][i] and
-            data['high'][i - 1] > data['high'][i + 1] and
-            data['low'][i - 2] > data['low'][i - 1] < data['low'][i] and
-            data['low'][i - 1] < data['low'][i + 1]):
-            pattern[i] = 1
-    return pattern
+    try:
+        pattern = [0] * len(data)
+        for i in range(2, len(data) - 1):
+            if (data['high'][i - 2] < data['high'][i - 1] > data['high'][i] and
+                data['high'][i - 1] > data['high'][i + 1] and
+                data['low'][i - 2] > data['low'][i - 1] < data['low'][i] and
+                data['low'][i - 1] < data['low'][i + 1]):
+                pattern[i] = 1
+        return pattern
+    except Exception as e:
+        logging.error("Failed to detect Head and Shoulders pattern: %s", e)
+        raise e
 
 def detect_double_top(data):
     """
     Detect the Double Top pattern in the data.
     """
-    pattern = [0] * len(data)
-    for i in range(1, len(data) - 1):
-        if (data['high'][i - 1] < data['high'][i] > data['high'][i + 1] and
-            data['high'][i] == data['high'][i + 1]):
-            pattern[i] = 1
-    return pattern
+    try:
+        pattern = [0] * len(data)
+        for i in range(1, len(data) - 1):
+            if (data['high'][i - 1] < data['high'][i] > data['high'][i + 1] and
+                data['high'][i] == data['high'][i + 1]):
+                pattern[i] = 1
+        return pattern
+    except Exception as e:
+        logging.error("Failed to detect Double Top pattern: %s", e)
+        raise e
 
 def place_order_with_risk_management(exchange, symbol, side, amount, stop_loss, take_profit):
     """
@@ -124,7 +144,6 @@ def place_order_with_risk_management(exchange, symbol, side, amount, stop_loss, 
         order_price = order.get('price')
         if order_price:
             stop_loss_price = order_price * (1 - stop_loss) if side == 'buy' else order_price * (1 + stop_loss)
-            
             take_profit_price = order_price * (1 + take_profit) if side == 'buy' else order_price * (1 - take_profit)
             
             logging.info(f"Stop Loss: {stop_loss_price}, Take Profit: {take_profit_price}")
@@ -142,31 +161,39 @@ def place_order_with_risk_management(exchange, symbol, side, amount, stop_loss, 
         logging.error(f"An error occurred: {e}")
 
 def main():
-    api_key = os.getenv('BYBIT_API_KEY')
-    api_secret = os.getenv('BYBIT_API_SECRET')
-    
-    if not api_key or not api_secret:
-        logging.error("API key and secret must be set as environment variables")
-        return
-    
-    synchronize_system_time()
-    exchange = initialize_exchange(api_key, api_secret)
-    
-    symbol = 'BTC/USDT'
-    data = fetch_historical_data(exchange, symbol)
-    data = calculate_technical_indicators(data)
-    data = detect_patterns(data)
+    try:
+        # Retrieve API keys and secrets from environment variables
+        api_key = os.getenv('BYBIT_API_KEY')
+        api_secret = os.getenv('BYBIT_API_SECRET')
 
-    # Example of placing an order with stop-loss and take-profit
-    # Configure risk management parameters here
-    side = 'buy'
-    amount = 0.001
-    stop_loss = 0.01  # 1%
-    take_profit = 0.02  # 2%
-    
-    # Uncomment the line below to place a real order
-    # place_order_with_risk_management(exchange, symbol, side, amount, stop_loss, take_profit)
+        if not api_key or not api_secret:
+            logging.error("API key and secret must be set as environment variables")
+            return
+
+        synchronize_system_time()
+        exchange = initialize_exchange(api_key, api_secret)
+        
+        symbol = 'BTC/USDT'
+        data = fetch_historical_data(exchange, symbol)
+        data = calculate_technical_indicators(data)
+        data = detect_patterns(data)
+
+        # Example of placing an order with stop-loss and take-profit
+        # Configure risk management parameters here
+        side = 'buy'
+        amount = 0.001
+        stop_loss = 0.01  # 1%
+        take_profit = 0.02  # 2%
+        
+        # Uncomment the line below to place a real order
+        # place_order_with_risk_management(exchange, symbol, side, amount, stop_loss, take_profit)
+
+    except ccxt.NetworkError as e:
+        logging.error("A network error occurred: %s", e)
+    except ccxt.BaseError as e:
+        logging.error("An error occurred: %s", e)
+    except ValueError as e:
+        logging.error("Value error occurred: %s", e)
 
 if __name__ == "__main__":
     main()
-
