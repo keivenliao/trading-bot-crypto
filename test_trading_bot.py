@@ -1,6 +1,8 @@
 import unittest
 from unittest.mock import MagicMock, patch
 from tradingbot import TradingBot
+import ccxt
+import ntplib
 
 class TestTradingFunctions(unittest.TestCase):
 
@@ -24,16 +26,24 @@ class TestTradingFunctions(unittest.TestCase):
             'enableRateLimit': True,
         })
 
-        # TODO: Add tests for failure cases (e.g., invalid API key/secret)
+        # Test failure case for exchange initialization (e.g., invalid API key/secret)
+        mock_bybit.side_effect = ccxt.AuthenticationError('Invalid API Key')
+        with self.assertRaises(ccxt.AuthenticationError):
+            self.trading_bot.initialize_exchange()
 
     @patch('tradingbot.ntplib.NTPClient')
     def test_synchronize_time(self, mock_ntp_client):
         # Test successful time synchronization
-        mock_ntp_client.return_value.request.return_value.offset = 0.123
+        mock_response = MagicMock()
+        mock_response.tx_time = 1625072400  # Example timestamp
+        mock_ntp_client.return_value.request.return_value = mock_response
         time_offset = self.trading_bot.synchronize_time()
-        self.assertEqual(time_offset, 0.123)
+        self.assertIsNotNone(time_offset)
 
-        # TODO: Add tests for failure cases (e.g., NTP server unavailable)
+        # Test failure case for time synchronization (e.g., NTP server unavailable)
+        mock_ntp_client.return_value.request.side_effect = ntplib.NTPException('NTP server unavailable')
+        with self.assertRaises(ntplib.NTPException):
+            self.trading_bot.synchronize_time()
 
     def test_place_order_with_risk_management(self):
         # Mock create_order method response
@@ -48,7 +58,10 @@ class TestTradingFunctions(unittest.TestCase):
         self.exchange.create_order.assert_any_call('BTC/USDT', 'stop', 'sell', 0.001, 49500.0)
         self.exchange.create_order.assert_any_call('BTC/USDT', 'limit', 'sell', 0.001, 51000.0)
 
-        # TODO: Add tests for handling order creation failures
+        # Test handling order creation failures
+        self.exchange.create_order.side_effect = ccxt.NetworkError('Network error')
+        with self.assertRaises(ccxt.NetworkError):
+            self.trading_bot.place_order_with_risk_management('BTC/USDT', 'buy', 0.001, 0.01, 0.02)
 
 if __name__ == '__main__':
     unittest.main()

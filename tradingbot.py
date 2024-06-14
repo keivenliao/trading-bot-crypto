@@ -56,13 +56,13 @@ class TradingBot:
             logging.error(f"Failed to initialize exchange: {e}")
             raise e
 
-    def fetch_data(self, symbol='BTC/USDT'):
+    def fetch_data(self, symbol='BTC/USDT', timeframe='1h', limit=100):
         try:
             params = {
                 'recvWindow': 10000,
                 'timestamp': int(time.time() * 1000 + self.synchronize_time())
             }
-            ohlcv = self.exchange.fetch_ohlcv(symbol, timeframe='1h', limit=100, params=params)
+            ohlcv = self.exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit, params=params)
             df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
             df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
             logging.info(f"Fetched OHLCV data for {symbol}")
@@ -90,46 +90,51 @@ class TradingBot:
         logging.info("Generated buy and sell signals")
         return df
 
-    def place_order_with_risk_management(self, symbol, side, amount, stop_loss_pct, take_profit_pct):
+    def simulate_trading(self, df):
+        """
+        Simulate trading based on signals generated from historical data.
+        """
         try:
-            order = self.exchange.create_market_order(symbol, side, amount)
-            price = order['price']
-
-            stop_loss_price = price * (1 - stop_loss_pct) if side == 'buy' else price * (1 + stop_loss_pct)
-            take_profit_price = price * (1 + take_profit_pct) if side == 'buy' else price * (1 - take_profit_pct)
-
-            self.exchange.create_order(symbol, 'stop', 'sell' if side == 'buy' else 'buy', amount, stop_loss_price)
-            self.exchange.create_order(symbol, 'limit', 'sell' if side == 'buy' else 'buy', amount, take_profit_price)
-
-            logging.info(f"Placed {side} order for {amount} {symbol} at {price} with SL at {stop_loss_price} and TP at {take_profit_price}")
-
+            for i in range(len(df)):
+                if df['Buy_Signal'].iloc[i]:
+                    self.place_order('buy', df['close'].iloc[i], 'BTC/USDT', 0.001)
+                elif df['Sell_Signal'].iloc[i]:
+                    self.place_order('sell', df['close'].iloc[i], 'BTC/USDT', 0.001)
+            logging.info("Simulated trading completed")
         except Exception as e:
-            logging.error(f"Failed to place order with risk management: {e}")
+            logging.error(f"Error occurred during simulated trading: {e}")
             raise e
 
-    def execute_trades(self, df):
-        for i in range(len(df)):
-            if df['Buy_Signal'].iloc[i]:
-                self.place_order_with_risk_management('BTC/USDT', 'buy', 0.001, 0.05, 0.10)
-            elif df['Sell_Signal'].iloc[i]:
-                self.place_order_with_risk_management('BTC/USDT', 'sell', 0.001, 0.05, 0.10)
+    def place_order(self, side, price, symbol, amount):
+        """
+        Simulate placing an order based on strategy signals.
+        """
+        try:
+            logging.info(f"Simulating {side} order for {amount} {symbol} at {price}")
+            # Implement logic to log simulated trades or adjust portfolio
+        except Exception as e:
+            logging.error(f"Failed to simulate {side} order: {e}")
+            raise e
 
 # Main function to orchestrate the workflow
 def main():
     try:
         bot = TradingBot(API_KEY, API_SECRET)
-        time_offset = bot.synchronize_time()
-        logging.info("Time synchronized with offset: %d", time_offset)
-        
         bot.initialize_exchange()
         
-        df = bot.fetch_data('BTC/USDT')
-        df = bot.calculate_indicators(df)
+        # Fetch historical data
+        historical_data = bot.fetch_data(symbol='BTC/USDT', timeframe='1d', limit=365)
+        
+        # Calculate indicators
+        df = bot.calculate_indicators(historical_data)
+        
+        # Generate signals
         df = bot.generate_signals(df)
         
-        bot.execute_trades(df)
+        # Simulate trading
+        bot.simulate_trading(df)
         
-        print(df.tail())
+        # Optional: Integrate monitoring and logging for simulated trades
         
     except Exception as e:
         logging.error(f"An error occurred during the main execution: {e}")

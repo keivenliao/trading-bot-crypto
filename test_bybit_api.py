@@ -1,10 +1,8 @@
 import ccxt
 import logging
+import os
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-
-API_KEY = 'YOUR_API_KEY'
-API_SECRET = 'YOUR_API_SECRET'
 
 def test_api_credentials(api_key, api_secret):
     """
@@ -31,9 +29,27 @@ def test_api_credentials(api_key, api_secret):
 
         return balance, orders
 
-    except ccxt.BaseError as e:
-        logging.error("Error testing API credentials: %s", e)
+    except ccxt.AuthenticationError as e:
+        logging.error("Authentication error: %s", e)
+        raise e
+    except ccxt.NetworkError as e:
+        logging.error("Network error: %s", e)
+        raise e
+    except ccxt.ExchangeError as e:
+        logging.error("Exchange error: %s", e)
+        raise e
+    except Exception as e:
+        logging.error("An unexpected error occurred: %s", e)
         raise e
 
 if __name__ == "__main__":
-    test_api_credentials(API_KEY, API_SECRET)
+    api_key = os.getenv('BYBIT_API_KEY', 'YOUR_API_KEY')
+    api_secret = os.getenv('BYBIT_API_SECRET', 'YOUR_API_SECRET')
+
+    if not api_key or not api_secret:
+        logging.error("API key and secret must be set as environment variables or provided in the script.")
+    else:
+        try:
+            test_api_credentials(api_key, api_secret)
+        except Exception as e:
+            logging.error("Failed to test API credentials: %s", e)
