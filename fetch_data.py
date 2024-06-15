@@ -170,6 +170,9 @@ def fetch_historical_data(exchange, symbol='BTC/USDT', timeframe='1d', limit=365
         raise e
 
 # Example usage
+def new_func():
+    errors
+
 if __name__ == "__main__":
     try:
         # Retrieve API keys and secrets from environment variables
@@ -205,7 +208,7 @@ if __name__ == "__main__":
     except ValueError as value_error:
         logging.error("Value error occurred: %s", value_error)
         # Handle missing environment variables or other value-related
-        errors
+        new_func()
     except Exception as error:
         logging.error("An unexpected error occurred: %s", error)
     # Handle any other unexpected errors
