@@ -1,8 +1,12 @@
+#HAS ERROR
+
+
+
 import time
 import ccxt
 import pandas as pd
 import logging
-from synchronize_exchange_time import synchronize_time
+from synchronize_exchange_time import synchronize_system_time
 import pandas_ta as ta
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -101,8 +105,8 @@ def main():
     Main function to orchestrate the workflow.
     """
     try:
-        time_offset = synchronize_time()
-        logging.info("Time synchronized with offset: %d", time_offset)
+        time_offset = synchronize_system_time()
+        logging.info("Time synchronized with offset: %d ms", time_offset)
         
         exchange = initialize_exchange(API_KEY, API_SECRET)
         

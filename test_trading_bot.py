@@ -66,8 +66,7 @@ class TestTradingFunctions(unittest.TestCase):
         self.assertEqual(df.iloc[0]['open'], 34000)
         self.assertEqual(df.iloc[1]['close'], 35000)
 
-    @patch('tradingbot.ccxt.bybit')
-    def test_calculate_indicators(self, mock_bybit):
+    def test_calculate_indicators(self):
         df = pd.DataFrame({
             'timestamp': [1625097600000, 1625184000000],
             'open': [34000, 34500],
@@ -81,8 +80,8 @@ class TestTradingFunctions(unittest.TestCase):
         df = self.trading_bot.calculate_indicators(df)
         self.assertIn('SMA_50', df.columns)
         self.assertIn('SMA_200', df.columns)
-        self.assertIn('MACD_12_26_9', df.columns)
-        self.assertIn('RSI_14', df.columns)
+        self.assertIn('MACD', df.columns)
+        self.assertIn('RSI', df.columns)
 
     def test_place_order_with_risk_management(self):
         # Mock create_order method response
