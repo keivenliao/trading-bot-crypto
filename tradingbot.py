@@ -1,8 +1,6 @@
 import logging
 import time
 import ntplib
-import os
-from dotenv import load_dotenv
 import ccxt
 import pandas as pd
 import pandas_ta as ta
@@ -71,15 +69,14 @@ class TradingBot:
             raise e
 
     def calculate_indicators(self, df):
-        df.ta.sma(length=50, append=True)
-        df.ta.sma(length=200, append=True)
-        df.ta.ema(length=12, append=True)
-        df.ta.ema(length=26, append=True)
+        df['SMA_50'] = ta.sma(df['close'], length=50)
+        df['SMA_200'] = ta.sma(df['close'], length=200)
+        df['EMA_12'] = ta.ema(df['close'], length=12)
+        df['EMA_26'] = ta.ema(df['close'], length=26)
         macd = ta.macd(df['close'], fast=12, slow=26, signal=9)
         df['MACD'] = macd['MACD_12_26_9']
         df['MACD_signal'] = macd['MACDs_12_26_9']
-        df.ta.rsi(length=14, append=True)
-        df.ta.sar(append=True)
+        df['RSI'] = ta.rsi(df['close'], length=14)
         logging.info("Calculated technical indicators")
         return df
 
@@ -111,7 +108,7 @@ class TradingBot:
 
 def main():
     try:
-        # Load API credentials
+        # Load API credentials #
         api_key, api_secret = load_api_credentials()
 
         # Initialize TradingBot instance
@@ -120,7 +117,8 @@ def main():
         
         # Fetch historical data
         historical_data = fetch_historical_data(bot.exchange, symbol='BTC/USDT', timeframe='1d', limit=365)
-                # Calculate technical indicators
+        
+        # Calculate technical indicators
         df_with_indicators = bot.calculate_indicators(historical_data)
         
         # Generate trading signals

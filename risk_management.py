@@ -53,18 +53,18 @@ def fetch_historical_data(exchange, symbol, timeframe='1h', limit=100):
         logging.error("Failed to fetch historical data: %s", e)
         raise e
 
-def calculate_technical_indicators(data):
+def calculate_technical_indicators(data, sma_periods=(50, 200), ema_periods=(12, 26), rsi_period=14):
     """
     Calculate technical indicators.
     """
     try:
-        data['SMA_50'] = data['close'].rolling(window=50).mean()
-        data['SMA_200'] = data['close'].rolling(window=200).mean()
-        data['EMA_12'] = data['close'].ewm(span=12, adjust=False).mean()
-        data['EMA_26'] = data['close'].ewm(span=26, adjust=False).mean()
+        data['SMA_50'] = data['close'].rolling(window=sma_periods[0]).mean()
+        data['SMA_200'] = data['close'].rolling(window=sma_periods[1]).mean()
+        data['EMA_12'] = data['close'].ewm(span=ema_periods[0], adjust=False).mean()
+        data['EMA_26'] = data['close'].ewm(span=ema_periods[1], adjust=False).mean()
         data['MACD'] = data['EMA_12'] - data['EMA_26']
         data['MACD_signal'] = data['MACD'].ewm(span=9, adjust=False).mean()
-        data['RSI'] = calculate_rsi(data['close'], 14)
+        data['RSI'] = calculate_rsi(data['close'], rsi_period)
         logging.info("Calculated technical indicators")
         return data
     except Exception as e:
@@ -159,6 +159,18 @@ def place_order_with_risk_management(exchange, symbol, side, amount, stop_loss, 
             logging.warning("Order price not available, cannot calculate stop-loss and take-profit.")
     except ccxt.BaseError as e:
         logging.error(f"An error occurred: {e}")
+
+def apply_position_sizing(df, risk_percentage):
+    """
+    Apply position sizing logic.
+    """
+    pass
+
+def apply_stop_loss(df, stop_loss_percentage):
+    """
+    Apply stop loss logic.
+    """
+    pass
 
 def main():
     try:

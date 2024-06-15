@@ -13,7 +13,7 @@ def initialize_exchange(api_key, api_secret):
         exchange = ccxt.bybit({
             'apiKey': api_key,
             'secret': api_secret,
-            'enableRateLimit': True,
+            'enableRateLimit': True,  # This helps to avoid rate limit errors
         })
         logging.info("Initialized Bybit exchange")
         return exchange
@@ -25,6 +25,7 @@ def initialize_exchange(api_key, api_secret):
         logging.error("A network error occurred with Bybit: %s", net_error)
     except Exception as e:
         logging.error("An unexpected error occurred: %s", str(e))
+        raise e
     return None
 
 if __name__ == "__main__":

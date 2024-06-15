@@ -20,7 +20,7 @@ def initialize_exchange(api_key: str, api_secret: str) -> ccxt.Exchange:
         return exchange
     except Exception as e:
         logging.error("Failed to initialize exchange: %s", e)
-        raise e
+        raise
 
 def fetch_ohlcv(exchange: ccxt.Exchange, symbol: str, timeframe: str = '1h', limit: int = 100) -> pd.DataFrame:
     """
@@ -35,7 +35,7 @@ def fetch_ohlcv(exchange: ccxt.Exchange, symbol: str, timeframe: str = '1h', lim
         return df
     except ccxt.BaseError as e:
         logging.error("Failed to fetch OHLCV data: %s", e)
-        raise e
+        raise
 
 def calculate_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
     """
@@ -48,7 +48,7 @@ def calculate_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
         return df
     except Exception as e:
         logging.error("Failed to calculate technical indicators: %s", e)
-        raise e
+        raise
 
 def define_trading_strategy(df: pd.DataFrame) -> pd.DataFrame:
     """
@@ -68,7 +68,7 @@ def define_trading_strategy(df: pd.DataFrame) -> pd.DataFrame:
         return df
     except Exception as e:
         logging.error("Failed to define trading strategy: %s", e)
-        raise e
+        raise
 
 def place_order(exchange: ccxt.Exchange, symbol: str, order_type: str, side: str, amount: float, price=None):
     """
