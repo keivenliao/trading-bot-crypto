@@ -1,5 +1,6 @@
 import unittest
 from unittest.mock import MagicMock, patch
+import pandas as pd
 from tradingbot import TradingBot
 import ccxt
 import ntplib
@@ -35,15 +36,53 @@ class TestTradingFunctions(unittest.TestCase):
     def test_synchronize_time(self, mock_ntp_client):
         # Test successful time synchronization
         mock_response = MagicMock()
-        mock_response.tx_time = 1625072400  # Example timestamp
+        mock_response.offset = 0.5  # Example offset
         mock_ntp_client.return_value.request.return_value = mock_response
         time_offset = self.trading_bot.synchronize_time()
-        self.assertIsNotNone(time_offset)
+        self.assertEqual(time_offset, 0.5)
 
         # Test failure case for time synchronization (e.g., NTP server unavailable)
         mock_ntp_client.return_value.request.side_effect = ntplib.NTPException('NTP server unavailable')
-        with self.assertRaises(ntplib.NTPException):
-            self.trading_bot.synchronize_time()
+        time_offset = self.trading_bot.synchronize_time()
+        self.assertEqual(time_offset, 0)  # Should return 0 offset if synchronization fails
+
+    @patch('tradingbot.ccxt.bybit')
+    def test_fetch_data(self, mock_bybit):
+        mock_exchange = MagicMock()
+        mock_bybit.return_value = mock_exchange
+
+        mock_ohlcv = [
+            [1625097600000, 34000, 35000, 33000, 34500, 100],
+            [1625184000000, 34500, 35500, 34000, 35000, 150],
+        ]
+        mock_exchange.fetch_ohlcv.return_value = mock_ohlcv
+
+        self.trading_bot.exchange = mock_exchange
+
+        df = self.trading_bot.fetch_data(symbol='BTC/USDT', timeframe='1h', limit=2)
+
+        self.assertEqual(len(df), 2)
+        self.assertEqual(list(df.columns), ['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+        self.assertEqual(df.iloc[0]['open'], 34000)
+        self.assertEqual(df.iloc[1]['close'], 35000)
+
+    @patch('tradingbot.ccxt.bybit')
+    def test_calculate_indicators(self, mock_bybit):
+        df = pd.DataFrame({
+            'timestamp': [1625097600000, 1625184000000],
+            'open': [34000, 34500],
+            'high': [35000, 35500],
+            'low': [33000, 34000],
+            'close': [34500, 35000],
+            'volume': [100, 150]
+        })
+        df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+
+        df = self.trading_bot.calculate_indicators(df)
+        self.assertIn('SMA_50', df.columns)
+        self.assertIn('SMA_200', df.columns)
+        self.assertIn('MACD_12_26_9', df.columns)
+        self.assertIn('RSI_14', df.columns)
 
     def test_place_order_with_risk_management(self):
         # Mock create_order method response
@@ -51,17 +90,15 @@ class TestTradingFunctions(unittest.TestCase):
         self.trading_bot.exchange = self.exchange
 
         # Test placing order with risk management
-        self.trading_bot.place_order_with_risk_management('BTC/USDT', 'buy', 0.001, 0.01, 0.02)
+        self.trading_bot.place_order('buy', 50000, 'BTC/USDT', 0.001)
         
         # Verify expected order calls
-        self.exchange.create_order.assert_any_call('BTC/USDT', 'market', 'buy', 0.001)
-        self.exchange.create_order.assert_any_call('BTC/USDT', 'stop', 'sell', 0.001, 49500.0)
-        self.exchange.create_order.assert_any_call('BTC/USDT', 'limit', 'sell', 0.001, 51000.0)
+        self.exchange.create_order.assert_called_with('BTC/USDT', 'market', 'buy', 0.001)
 
         # Test handling order creation failures
         self.exchange.create_order.side_effect = ccxt.NetworkError('Network error')
         with self.assertRaises(ccxt.NetworkError):
-            self.trading_bot.place_order_with_risk_management('BTC/USDT', 'buy', 0.001, 0.01, 0.02)
+            self.trading_bot.place_order('buy', 50000, 'BTC/USDT', 0.001)
 
 if __name__ == '__main__':
     unittest.main()

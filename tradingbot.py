@@ -1,23 +1,22 @@
-import os
-import ccxt
-import pandas as pd
-import pandas_ta as ta
 import logging
 import time
 import ntplib
+import os
 from dotenv import load_dotenv
+import ccxt
+import pandas as pd
+import pandas_ta as ta
+from APIs import load_api_credentials
+from fetch_data import fetch_historical_data
+from technical_indicators import calculate_technical_indicators
+from trading_strategy import generate_signals
+from risk_management import apply_position_sizing, apply_stop_loss
+from portfolio_management import track_portfolio_performance, rebalance_portfolio
+from monitoring import track_performance_metrics, send_notification
+from backtesting import backtest_strategy
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-
-# Load environment variables from .env file
-load_dotenv()
-API_KEY = os.getenv('BYBIT_API_KEY')
-API_SECRET = os.getenv('BYBIT_API_SECRET')
-
-if not API_KEY or not API_SECRET:
-    logging.error("API key and secret must be set as environment variables")
-    exit(1)
 
 class TradingBot:
     def __init__(self, api_key, api_secret, ntp_server='time.google.com', max_retries=3, backoff_factor=1):
@@ -91,9 +90,6 @@ class TradingBot:
         return df
 
     def simulate_trading(self, df):
-        """
-        Simulate trading based on signals generated from historical data.
-        """
         try:
             for i in range(len(df)):
                 if df['Buy_Signal'].iloc[i]:
@@ -106,9 +102,6 @@ class TradingBot:
             raise e
 
     def place_order(self, side, price, symbol, amount):
-        """
-        Simulate placing an order based on strategy signals.
-        """
         try:
             logging.info(f"Simulating {side} order for {amount} {symbol} at {price}")
             # Implement logic to log simulated trades or adjust portfolio
@@ -116,29 +109,44 @@ class TradingBot:
             logging.error(f"Failed to simulate {side} order: {e}")
             raise e
 
-# Main function to orchestrate the workflow
 def main():
     try:
-        bot = TradingBot(API_KEY, API_SECRET)
+        # Load API credentials
+        api_key, api_secret = load_api_credentials()
+
+        # Initialize TradingBot instance
+        bot = TradingBot(api_key, api_secret)
         bot.initialize_exchange()
         
         # Fetch historical data
-        historical_data = bot.fetch_data(symbol='BTC/USDT', timeframe='1d', limit=365)
+        historical_data = fetch_historical_data(bot.exchange, symbol='BTC/USDT', timeframe='1d', limit=365)
+                # Calculate technical indicators
+        df_with_indicators = bot.calculate_indicators(historical_data)
         
-        # Calculate indicators
-        df = bot.calculate_indicators(historical_data)
+        # Generate trading signals
+        signals_df = bot.generate_signals(df_with_indicators)
         
-        # Generate signals
-        df = bot.generate_signals(df)
+        # Apply risk management
+        apply_position_sizing(signals_df, risk_percentage=0.02)  # Example: Risk 2% per trade
+        apply_stop_loss(signals_df, stop_loss_percentage=0.05)  # Example: 5% stop loss
         
-        # Simulate trading
-        bot.simulate_trading(df)
+        # Perform backtesting
+        backtest_strategy(signals_df)
         
-        # Optional: Integrate monitoring and logging for simulated trades
+        # Monitor portfolio performance
+        track_portfolio_performance()
+        
+        # Rebalance portfolio if necessary
+        rebalance_portfolio()
+        
+        # Track bot performance metrics
+        track_performance_metrics(signals_df)
+        
+        # Send notifications/alerts
+        send_notification("Trading bot executed successfully.")
         
     except Exception as e:
         logging.error(f"An error occurred during the main execution: {e}")
 
-# Run the main function
 if __name__ == "__main__":
     main()
