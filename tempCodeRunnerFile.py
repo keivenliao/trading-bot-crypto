@@ -4,7 +4,7 @@ import logging
 import os
 import time
 import ntplib
-import ta
+import pandas_ta as ta  # Correct import for pandas_ta
 from datetime import datetime
 
 # Setup logging
@@ -66,12 +66,15 @@ def calculate_indicators(df):
     Calculate technical indicators using pandas_ta library.
     """
     try:
-        df.ta.sma(length=50, append=True)
-        df.ta.sma(length=200, append=True)
-        df.ta.ema(length=12, append=True)
-        df.ta.ema(length=26, append=True)
-        df.ta.macd(append=True)
-        df.ta.rsi(length=14, append=True)
+        df['SMA_50'] = ta.sma(df['close'], length=50)
+        df['SMA_200'] = ta.sma(df['close'], length=200)
+        df['EMA_12'] = ta.ema(df['close'], length=12)
+        df['EMA_26'] = ta.ema(df['close'], length=26)
+        macd = ta.macd(df['close'])
+        df['MACD'] = macd['MACD_12_26_9']
+        df['MACD_signal'] = macd['MACDs_12_26_9']
+        df['RSI'] = ta.rsi(df['close'], length=14)
+        df.fillna(0, inplace=True)  # Fill NaN values with 0
         logging.info("Calculated technical indicators")
     except Exception as e:
         logging.error("Error calculating indicators: %s", e)
@@ -84,9 +87,9 @@ def trading_strategy(df, sma_short=50, sma_long=200):
     """
     signals = ['hold']  # Initialize with 'hold' for the first entry
     for i in range(1, len(df)):
-        if df['SMA_' + str(sma_short)][i] > df['SMA_' + str(sma_long)][i] and df['SMA_' + str(sma_short)][i-1] <= df['SMA_' + str(sma_long)][i-1]:
+        if (df['SMA_' + str(sma_short)][i] > df['SMA_' + str(sma_long)][i]) and (df['SMA_' + str(sma_short)][i-1] <= df['SMA_' + str(sma_long)][i-1]):
             signals.append('buy')
-        elif df['SMA_' + str(sma_short)][i] < df['SMA_' + str(sma_long)][i] and df['SMA_' + str(sma_short)][i-1] >= df['SMA_' + str(sma_long)][i-1]:
+        elif (df['SMA_' + str(sma_short)][i] < df['SMA_' + str(sma_long)][i]) and (df['SMA_' + str(sma_short)][i-1] >= df['SMA_' + str(sma_long)][i-1]):
             signals.append('sell')
         else:
             signals.append('hold')
@@ -108,27 +111,6 @@ def execute_trade(exchange, symbol, signal, amount=1):
     except ccxt.BaseError as e:
         logging.error(f"Error executing {signal} order: {e}")
         raise e
-    
-
-def generate_signals(df):
-    # Calculate Moving Averages
-    df['SMA_50'] = ta.sma(df['close'], length=50)
-    df['SMA_200'] = ta.sma(df['close'], length=200)
-    
-    # Calculate MACD
-    macd = ta.macd(df['close'], fast=12, slow=26, signal=9)
-    df['MACD'] = macd['MACD_12_26_9']
-    df['MACD_signal'] = macd['MACDs_12_26_9']
-    
-    # Calculate RSI
-    df['RSI'] = ta.rsi(df['close'], length=14)
-    
-    # Generate Buy and Sell Signals
-    df['Buy_Signal'] = (df['close'] > df['SMA_50']) & (df['SMA_50'] > df['SMA_200']) & (df['MACD'] > df['MACD_signal']) & (df['RSI'] < 70)
-    df['Sell_Signal'] = (df['close'] < df['SMA_50']) & (df['SMA_50'] < df['SMA_200']) & (df['MACD'] < df['MACD_signal']) & (df['RSI'] > 30)
-    
-    return df
-
 
 def main():
     try:

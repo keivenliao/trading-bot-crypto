@@ -83,19 +83,24 @@ class TestTradingFunctions(unittest.TestCase):
         self.assertIn('MACD', df.columns)
         self.assertIn('RSI', df.columns)
 
-    def test_place_order_with_risk_management(self):
+    @patch('tradingbot.ccxt.bybit')
+    def test_place_order_with_risk_management(self, mock_bybit):
+        mock_exchange = MagicMock()
+        mock_bybit.return_value = mock_exchange
+        self.trading_bot.exchange = mock_exchange
+
         # Mock create_order method response
-        self.exchange.create_order = MagicMock(return_value={'price': 50000})
-        self.trading_bot.exchange = self.exchange
+        mock_exchange.create_order.return_value = {'price': 50000}
 
         # Test placing order with risk management
-        self.trading_bot.place_order('buy', 50000, 'BTC/USDT', 0.001)
+        order = self.trading_bot.place_order('buy', 50000, 'BTC/USDT', 0.001)
         
         # Verify expected order calls
-        self.exchange.create_order.assert_called_with('BTC/USDT', 'market', 'buy', 0.001)
+        mock_exchange.create_order.assert_called_with('BTC/USDT', 'market', 'buy', 0.001)
+        self.assertEqual(order['price'], 50000)
 
         # Test handling order creation failures
-        self.exchange.create_order.side_effect = ccxt.NetworkError('Network error')
+        mock_exchange.create_order.side_effect = ccxt.NetworkError('Network error')
         with self.assertRaises(ccxt.NetworkError):
             self.trading_bot.place_order('buy', 50000, 'BTC/USDT', 0.001)
 

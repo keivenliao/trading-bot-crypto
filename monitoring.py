@@ -50,7 +50,7 @@ def send_notification(message):
 if __name__ == "__main__":
     # Sample DataFrame for demonstration purposes
     data = {
-        'timestamp': pd.date_range(start='2021-01-01', periods=100, freq='H'),
+        'timestamp': pd.date_range(start='2021-01-01', periods=100, freq='h'),
         'open': pd.Series(range(100)),
         'high': pd.Series(range(1, 101)),
         'low': pd.Series(range(100)),
