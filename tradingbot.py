@@ -8,7 +8,7 @@ from APIs import load_api_credentials
 from fetch_data import fetch_historical_data
 from technical_indicators import calculate_technical_indicators
 from trading_strategy import generate_signals
-from Risk_Management import apply_position_sizing, apply_stop_loss
+from risk_management import apply_position_sizing, apply_stop_loss
 from portfolio_management import track_portfolio_performance, rebalance_portfolio
 from monitoring import track_performance_metrics, send_notification
 from backtesting import backtest_strategy
