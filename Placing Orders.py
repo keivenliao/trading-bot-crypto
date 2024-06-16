@@ -27,7 +27,7 @@ def fetch_ohlcv(exchange: ccxt.Exchange, symbol: str, timeframe: str = '1h', lim
     Fetch OHLCV data.
     """
     try:
-        params = {'recvWindow': 10000}
+        params = {'recvWindow': 30000}  # Increase recv_window to 30 seconds
         ohlcv = exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit, params=params)
         df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
         df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
@@ -36,6 +36,7 @@ def fetch_ohlcv(exchange: ccxt.Exchange, symbol: str, timeframe: str = '1h', lim
     except ccxt.BaseError as e:
         logging.error("Failed to fetch OHLCV data: %s", e)
         raise
+
 
 def calculate_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
     """
@@ -70,7 +71,20 @@ def define_trading_strategy(df: pd.DataFrame) -> pd.DataFrame:
         logging.error("Failed to define trading strategy: %s", e)
         raise
 
-def place_order(exchange: ccxt.Exchange, symbol: str, order_type: str, side: str, amount: float, price=None):
+def place_order(self, side, price, symbol, amount):
+    try:
+        logging.info(f"Simulating {side} order for {amount} {symbol} at {price}")
+        self.exchange.create_order(symbol, 'market', side, amount)
+        logging.info(f"Order placed: {side} {amount} {symbol} at {price}")
+    except ccxt.InsufficientFunds as e:
+        logging.warning(f"Insufficient funds to place {side} order: {e}")
+        # Implement recovery or fallback strategy here
+    except Exception as e:
+        logging.error(f"Failed to simulate {side} order: {e}")
+        raise e
+
+
+'''def place_order(exchange: ccxt.Exchange, symbol: str, order_type: str, side: str, amount: float, price=None):
     """
     Place an order on the exchange.
     """
@@ -88,7 +102,7 @@ def place_order(exchange: ccxt.Exchange, symbol: str, order_type: str, side: str
     except ccxt.NetworkError as neterr:
         logging.error("Network error: %s", neterr)
     except ccxt.BaseError as e:
-        logging.error("An error occurred: %s", e)
+        logging.error("An error occurred: %s", e)'''
 
 def execute_trading_strategy(exchange: ccxt.Exchange, df: pd.DataFrame, symbol: str, amount: float):
     """

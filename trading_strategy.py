@@ -3,8 +3,9 @@ import pandas as pd
 import logging
 import os
 import time
-from synchronize_exchange_time import synchronize_time
-import pandas_ta as ta  # Ensure correct import for pandas_ta
+import ntplib
+import ta
+from datetime import datetime
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -12,6 +13,19 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 # Environment variables for API credentials
 API_KEY = os.getenv('BYBIT_API_KEY')
 API_SECRET = os.getenv('BYBIT_API_SECRET')
+
+def synchronize_system_time():
+    """
+    Synchronize system time with an NTP server.
+    """
+    try:
+        response = ntplib.NTPClient().request('pool.ntp.org')
+        current_time = datetime.fromtimestamp(response.tx_time)
+        logging.info(f"System time synchronized: {current_time}")
+        return int((current_time - datetime.utcnow()).total_seconds() * 1000)  # Return time offset in milliseconds
+    except Exception as e:
+        logging.error("Time synchronization failed: %s", e)
+        return 0  # Return zero offset in case of failure
 
 def initialize_exchange(api_key, api_secret):
     """
@@ -64,15 +78,6 @@ def calculate_indicators(df):
         raise e
     return df
 
-def generate_signals(df):
-    """
-    Generate trading signals based on indicators.
-    """
-    df['Buy_Signal'] = (df['close'] > df['SMA_50']) & (df['SMA_50'] > df['SMA_200']) & (df['MACD'] > df['MACD_signal']) & (df['RSI'] < 70)
-    df['Sell_Signal'] = (df['close'] < df['SMA_50']) & (df['SMA_50'] < df['SMA_200']) & (df['MACD'] < df['MACD_signal']) & (df['RSI'] > 30)
-    logging.info("Generated buy and sell signals")
-    return df
-
 def trading_strategy(df, sma_short=50, sma_long=200):
     """
     Define the trading strategy based on SMA crossover.
@@ -103,11 +108,32 @@ def execute_trade(exchange, symbol, signal, amount=1):
     except ccxt.BaseError as e:
         logging.error(f"Error executing {signal} order: {e}")
         raise e
+    
+
+def generate_signals(df):
+    # Calculate Moving Averages
+    df['SMA_50'] = ta.sma(df['close'], length=50)
+    df['SMA_200'] = ta.sma(df['close'], length=200)
+    
+    # Calculate MACD
+    macd = ta.macd(df['close'], fast=12, slow=26, signal=9)
+    df['MACD'] = macd['MACD_12_26_9']
+    df['MACD_signal'] = macd['MACDs_12_26_9']
+    
+    # Calculate RSI
+    df['RSI'] = ta.rsi(df['close'], length=14)
+    
+    # Generate Buy and Sell Signals
+    df['Buy_Signal'] = (df['close'] > df['SMA_50']) & (df['SMA_50'] > df['SMA_200']) & (df['MACD'] > df['MACD_signal']) & (df['RSI'] < 70)
+    df['Sell_Signal'] = (df['close'] < df['SMA_50']) & (df['SMA_50'] < df['SMA_200']) & (df['MACD'] < df['MACD_signal']) & (df['RSI'] > 30)
+    
+    return df
+
 
 def main():
     try:
         # Synchronize time with NTP server
-        time_offset = synchronize_time()
+        time_offset = synchronize_system_time()
         logging.info("Time synchronized with offset: %d", time_offset)
         
         # Initialize exchange
@@ -121,9 +147,6 @@ def main():
         
         # Define trading strategy
         df = trading_strategy(df)
-        
-        # Generate buy and sell signals
-        df = generate_signals(df)
         
         # Execute trades based on signals
         for _, row in df.iterrows():
