@@ -1,8 +1,14 @@
+from cmath import e
 import ccxt
 import pandas as pd
 import pandas_ta as ta
 import logging
 import os
+from APIs import create_exchange_instance, set_leverage
+from fetch_data import fetch_ohlcv
+from technical_indicators import calculate_indicators
+from trading_strategy import detect_signals
+from risk_management import calculate_stop_loss, calculate_take_profit, calculate_position_size
 
 from fetch_data import fetch_ohlcv
 
@@ -94,35 +100,55 @@ def fetch_real_time_balance(exchange, currency='USDT'):
         logging.error("Error fetching real-time balance: %s", error)
         raise error
 
-def backtest_strategy(df, initial_capital=1000, position_size=1):
+import pandas as pd
+
+def backtest_strategy(df, strategy_func, initial_balance=1000, leverage=10, risk_percentage=1, risk_reward_ratio=2):
     """Backtest trading strategy on historical data."""
+    balance = initial_balance
+    trades = []
+    position_size = 0
+    entry_price = 0
+    stop_loss = 0
+    take_profit = 0
+
     try:
-        df['signal'] = df.apply(lambda row: detect_signals(df), axis=1)
+        df['signal'] = df.apply(lambda row: strategy_func(df), axis=1)
         df['position'] = 0  # 1 for long, -1 for short, 0 for no position
-        df['capital'] = initial_capital
-        df['balance'] = initial_capital
+        df['capital'] = initial_balance
+        df['balance'] = initial_balance
         current_position = 0
 
-        for i in range(1, len(df)):
-            if df.at[i, 'signal'] == 'buy' and current_position == 0:
-                current_position = position_size
-                df.at[i, 'position'] = current_position
-                df.at[i, 'capital'] -= df.at[i, 'close'] * position_size  # Deduct cost of buying
+        for index, row in df.iterrows():
+            if position_size > 0:
+                # Check if stop loss or take profit is hit
+                if row['low'] <= stop_loss or row['high'] >= take_profit:
+                    balance += position_size * leverage * (take_profit - entry_price if row['high'] >= take_profit else stop_loss - entry_price)
+                    trades.append({'entry_price': entry_price, 'exit_price': take_profit if row['high'] >= take_profit else stop_loss, 'profit': position_size * leverage * (take_profit - entry_price if row['high'] >= take_profit else stop_loss - entry_price)})
+                    position_size = 0
 
-                # Simulate buy trade execution (update balance)
-                df.at[i, 'balance'] = df.at[i - 1, 'balance'] - df.at[i, 'close'] * position_size
+            signal = row['signal']
 
-            elif df.at[i, 'signal'] == 'sell' and current_position == position_size:
-                current_position = 0
-                df.at[i, 'position'] = current_position
-                df.at[i, 'capital'] += df.at[i, 'close'] * position_size  # Add profit from selling
+            if signal == 'buy' and position_size == 0:
+                entry_price = row['close']
+                stop_loss = calculate_stop_loss(entry_price, risk_percentage, leverage)
+                take_profit = calculate_take_profit(entry_price, risk_reward_ratio, stop_loss)
+                position_size = calculate_position_size(balance, risk_percentage, stop_loss)
+                balance -= position_size * leverage * entry_price
 
-                # Simulate sell trade execution (update balance)
-                df.at[i, 'balance'] = df.at[i - 1, 'balance'] + df.at[i, 'close'] * position_size
+            elif signal == 'sell' and position_size == 0:
+                entry_price = row['close']
+                stop_loss = calculate_stop_loss(entry_price, risk_percentage, leverage)
+                take_profit = calculate_take_profit(entry_price, risk_reward_ratio, stop_loss)
+                position_size = -calculate_position_size(balance, risk_percentage, stop_loss)
+                balance -= position_size * leverage * entry_price
+
+            df.at[index, 'position'] = position_size
+            df.at[index, 'capital'] = balance
 
         final_balance = df.iloc[-1]['balance']
         logging.info("Backtesting completed. Final balance: %.2f", final_balance)
-        return df, final_balance
+        return df, final_balance, trades
+
     except Exception as e:
         logging.error("Error during backtesting: %s", e)
         raise e
@@ -148,10 +174,24 @@ def perform_backtesting(exchange):
     except Exception as e:
         logging.error("Error during backtesting: %s", e)
     
+def execute_trade(exchange, symbol, signal, df, balance, risk_percentage, leverage, risk_reward_ratio):
+    entry_price = df.iloc[-1]['close']
+    stop_loss = calculate_stop_loss(entry_price, risk_percentage, leverage)
+    take_profit = calculate_take_profit(entry_price, risk_reward_ratio, stop_loss)
+    position_size = calculate_position_size(balance, risk_percentage, stop_loss)
 
+    if signal == 'buy':
+        exchange.create_market_buy_order(symbol, position_size)
+        logging.info(f"Buy order executed at {entry_price}, stop loss at {stop_loss}, take profit at {take_profit}")
+    elif signal == 'sell':
+        exchange.create_market_sell_order(symbol, position_size)
+        logging.info(f"Sell order executed at {entry_price}, stop loss at {stop_loss}, take profit at {take_profit}")
+    else:
+        logging.info("No trade executed")
 
 def main():
     """Main function to run backtesting."""
+
     try:
         # Initialize the exchange
         api_key = os.getenv('BYBIT_API_KEY')
@@ -162,23 +202,46 @@ def main():
             'enableRateLimit': True
         })
         
+    exchange = create_exchange_instance()
+    symbol = 'BTC/USDT'
+    timeframe = '1h'
+    leverage = 10  # Set desired leverage
+
+    set_leverage(exchange, symbol, leverage)
+
+    df = fetch_ohlcv(exchange, symbol, timeframe)
+    df = calculate_indicators(df)
+
+    # Backtest the strategy on historical data
+    backtest_df, final_balance = backtest_strategy(df)
+
+    # Execute the trading strategy based on the latest signal
+    latest_signal = detect_signals(df)
+    balance = 10  # Your total balance
+    risk_percentage = 1  # Risk 1% per trade
+    risk_reward_ratio = 2  # Risk-reward ratio of 1:2
+
+    execute_trade(exchange, symbol, latest_signal, df, balance, risk_percentage, leverage, risk_reward_ratio)    
+        
         # Fetch real-time balance
-        real_time_balance = fetch_real_time_balance(exchange, currency='USDT')
+        
+    real_time_balance = fetch_real_time_balance(exchange, currency='USDT')
         
         # Fetch historical data
-        df = fetch_data(exchange, symbol='BTC/USDT', timeframe='1h', limit=500)
+    
+    df = fetch_data(exchange, symbol='BTC/USDT', timeframe='1h', limit=500)
         
         # Calculate indicators
-        df = calculate_indicators(df)
+    df = calculate_indicators(df)
         
         # Run backtest
-        backtest_df, final_capital = backtest_strategy(df, initial_capital=real_time_balance)
+    backtest_df, final_capital = backtest_strategy(df, initial_capital=real_time_balance)
         
         # Output results
-        print(backtest_df.tail())
-        logging.info("Final capital after backtesting: %.2f", final_capital)
+    print(backtest_df.tail())
+    logging.info("Final capital after backtesting: %.2f", final_capital)
     except Exception as e:
-        logging.error("An error occurred in the main function: %s", e)
+    logging.error("An error occurred in the main function: %s", e)
 
 if __name__ == "__main__":
     main()

@@ -1,0 +1,135 @@
+APIs.py
+load_api_credentials(): Loads API credentials from environment variables.
+
+backtesting.py
+synchronize_time_with_exchange(exchange): Synchronizes local time with the exchange time.
+fetch_data(exchange, symbol='BTC/USDT', timeframe='1h', limit=100): Fetches historical OHLCV data from the exchange.
+calculate_indicators(df, sma_short=20, sma_long=50, rsi_period=14, macd_fast=12, macd_slow=26, macd_signal=9): Calculates technical indicators and appends them to the DataFrame.
+detect_signals(df, sma_short=20, sma_long=50, rsi_overbought=70, rsi_oversold=30): Detects trading signals based on technical indicators.
+fetch_real_time_balance(exchange, currency='USDT'): Fetches real-time balance from the exchange.
+backtest_strategy(df, initial_capital=1000, position_size=1): Backtests trading strategy on historical data.
+perform_backtesting(exchange): Performs backtesting on BTC/USDT pair using the provided exchange.
+main(): Main function to run backtesting.
+
+
+example_usage.py
+example_usage(exchanges): Performs example operations with each exchange.
+
+exchanges.py
+initialize_exchange(api_key, api_secret): Initializes a Bybit exchange using API credentials.
+initialize_multiple_exchanges(): Initializes multiple Bybit exchanges using different API keys and secrets.
+
+fetch_data.py
+synchronize_time_with_exchange(exchange): Synchronizes the local system time with the exchange server time.
+fetch_ohlcv(exchange, symbol, timeframe='1h', limit=100): Fetches OHLCV data for a given symbol and timeframe from the exchange.
+perform_technical_analysis(df, sma_lengths=(20, 50), rsi_length=14, macd_params=(12, 26, 9)): Performs technical analysis on the OHLCV data DataFrame.
+detect_signals(df, sma_lengths): Detects bullish or bearish signals in the OHLCV data.
+fetch_historical_data(exchange, symbol, timeframe, limit=100, params=None): Fetches historical OHLCV data from the specified exchange.
+fetch_real_time_data(exchange, symbol, timeframe='1m', limit=100): Continuously fetches real-time OHLCV data for a symbol from the exchange.
+main(): Main function to execute fetching of real-time data.
+
+
+main.py
+setup_logging(): Sets up logging configuration.
+load_api_credentials(): Loads API credentials from environment variables.
+initialize_exchange(api_key, api_secret): Initializes a Bybit exchange using API credentials.
+fetch_ohlcv_with_retry(exchange, symbol, timeframe='1h', limit=500): Fetches OHLCV data with retries.
+calculate_indicators(df): Calculates technical indicators and appends them to the DataFrame.
+trading_strategy(df, sma_short=50, sma_long=200): Defines the trading strategy based on SMA crossover.
+execute_trade(exchange, symbol, signal, amount=1): Executes trade based on the signal.
+perform_backtesting(exchange): Performs backtesting on BTC/USDT pair using the provided exchange.
+main(): Main function to run backtesting.
+
+
+monitoring.py
+track_performance_metrics(df): Tracks and logs basic performance metrics of the provided DataFrame.
+send_notification(message): Sends a notification with the provided message.
+
+
+
+Placing_Orders.py
+initialize_exchange(api_key, api_secret): Initializes the exchange with API key and secret.
+fetch_ohlcv(exchange, symbol, timeframe='1h', limit=100): Fetches OHLCV data.
+calculate_technical_indicators(df): Calculates technical indicators for trading strategy.
+define_trading_strategy(df): Defines the trading strategy based on technical indicators.
+place_order(self, side, price, symbol, amount): Places an order on the exchange.
+execute_trading_strategy(exchange, df, symbol, amount): Executes the trading strategy based on signals.
+main(): Main function to execute the trading strategy.
+
+
+
+portfolio_management.py
+fetch_derivative_positions(): Fetches current derivative positions from Bybit.
+fetch_current_prices(assets): Fetches current prices for given assets from the exchange.
+track_portfolio_performance(portfolio): Tracks and logs the performance of the portfolio.
+rebalance_portfolio(portfolio, target_weights): Rebalances the portfolio according to target weights.
+main(): Main function to manage and rebalance the portfolio.
+
+
+risk_management.py
+synchronize_system_time(): Synchronizes system time with an NTP server.
+initialize_exchange(api_key, api_secret): Initializes the exchange with the provided API key and secret.
+fetch_historical_data(exchange, symbol, timeframe='1h', limit=100): Fetches historical OHLCV data for the specified symbol and timeframe.
+calculate_technical_indicators(data, sma_periods=(50, 200), ema_periods=(12, 26), rsi_period=14): Calculates technical indicators.
+calculate_rsi(series, period): Calculates Relative Strength Index (RSI).
+detect_patterns(data): Detects patterns in the data.
+detect_head_and_shoulders(data): Detects the Head and Shoulders pattern in the data.
+detect_double_top(data): Detects the Double Top pattern in the data.
+place_order_with_risk_management(exchange, symbol, side, amount, stop_loss, take_profit): Places an order with stop-loss and take-profit.
+apply_position_sizing(df, risk_percentage): Applies position sizing logic based on risk percentage of capital.
+apply_stop_loss(df, stop_loss_percentage): Applies stop-loss logic based on stop-loss percentage from entry price.
+main(): Main function to manage risk and execute trades.
+
+
+run.py
+main(): Main function to initialize the exchange and execute trading strategy.
+
+
+
+synchronize_exchange_time.py
+synchronize_system_time(retries=3): Synchronizes system time with an NTP server, with retries and alternate servers.
+
+
+technical_indicators.py
+TradingBot(): Class for the trading bot.
+initialize_exchange(): Initializes the exchange.
+fetch_ohlcv(symbol, timeframe='1h', limit=100, time_offset=0): Fetches OHLCV data.
+calculate_indicators(df): Calculates technical indicators.
+
+
+
+trading_strategy(df): Defines the trading strategy.
+execute_trade(symbol, signal, amount=0.001): Executes trades based on signals.
+main(): Main function to run the trading bot.
+
+
+
+
+tempCodeRunnerFile.py
+synchronize_system_time(): Synchronizes system time with an NTP server.
+initialize_exchange(api_key, api_secret): Initializes the Bybit exchange.
+fetch_ohlcv(exchange, symbol, timeframe='1h', limit=100, time_offset=0): Fetches OHLCV data from the exchange.
+calculate_indicators(df): Calculates technical indicators using pandas_ta library.
+trading_strategy(df, sma_short=50, sma_long=200): Defines the trading strategy based on SMA crossover.
+fetch_balance(exchange): Fetches the account balance.
+execute_trade(exchange, symbol, signal, available_usd, btc_price): Executes trades based on signals.
+main(): Main function to execute the trading strategy.
+
+
+
+
+test_bybit_api.py
+test_api_credentials(api_key, api_secret): Tests API credentials by fetching account balance, open orders, and placing a test order.
+
+
+
+test_trading_bot.py
+setUp(): Sets up the test environment.
+test_initialize_exchange(mock_bybit): Tests exchange initialization.
+test_synchronize_time(mock_ntp_client): Tests time synchronization.
+test_fetch_data(mock_bybit): Tests fetching of data.
+test_calculate_indicators(): Tests calculation of indicators.
+test_place_order_with_risk_management(mock_bybit): Tests placing an order with risk management.
+
+
+This should provide a comprehensive overview of the functions in the provided code. Let me know if you need more details or explanations for any specific functions!
