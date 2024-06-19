@@ -1,14 +1,20 @@
+import ccxt
+import pandas as pd
 import logging
+import os
 import time
 import ntplib
-import pandas as pd
-import numpy as np
-import ccxt
-from APIs import create_exchange_instance, load_api_credentials
-from fetch_data import fetch_ohlcv
-from risk_management import calculate_stop_loss, calculate_take_profit, calculate_position_size
+from flask import Flask, request, jsonify
+from dotenv import load_dotenv
+import pandas_ta as ta
 
+# Setup logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+# Load environment variables from .env file
+load_dotenv(dotenv_path='C:/Users/amrita/Desktop/improvised-code-of-the-pdf-GPT-main/API.env')
+
+app = Flask(__name__)
 
 class TradingBot:
     def __init__(self, api_key, api_secret, ntp_server='time.google.com', max_retries=3, backoff_factor=1):
@@ -37,125 +43,177 @@ class TradingBot:
 
     def initialize_exchange(self):
         try:
-            self.exchange = create_exchange_instance(self.api_key, self.api_secret)
-            logging.info("Initialized exchange")
+            self.exchange = ccxt.bybit({
+                'apiKey': self.api_key,
+                'secret': self.api_secret,
+                'enableRateLimit': True,  # This helps to avoid rate limit errors
+            })
+            logging.info("Initialized Bybit exchange")
         except Exception as e:
             logging.error(f"Failed to initialize exchange: {e}")
             raise e
 
-    def fetch_data(self, symbol='BTC/USDT', timeframe='1h', limit=100):
+    def fetch_data(self, symbol='BTCUSDT', timeframe='1h', limit=100):
         try:
             params = {
                 'recvWindow': 10000,
                 'timestamp': int(time.time() * 1000 + self.synchronize_time())
             }
-            df = fetch_ohlcv(self.exchange, symbol, timeframe, limit, params=params)
-            logging.info(f"Fetched OHLCV data for {symbol}")
-            return df
+            ohlcv = self.exchange.fetch_ohlcv(symbol, timeframe, limit, params)
+            
+            # Print the fetched OHLCV data for debugging
+            logging.info(f"Fetched OHLCV raw data: {ohlcv}")
+            
+            # Example handling of unexpected nested structures
+            if isinstance(ohlcv, list):
+                # Check if all items are lists, if not handle the nested structure
+                if all(isinstance(item, list) for item in ohlcv):
+                    df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+                else:
+                    # Handle case where each item might be a dictionary or another nested structure
+                    ohlcv_flat = [[item.get('timestamp'), item.get('open'), item.get('high'), item.get('low'), item.get('close'), item.get('volume')] if isinstance(item, dict) else item for item in ohlcv]
+                    df = pd.DataFrame(ohlcv_flat, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+                
+                df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+                logging.info(f"Fetched OHLCV data for {symbol}")
+                return df
+            else:
+                logging.error(f"Unexpected data structure: {ohlcv}")
+                raise ValueError("Unexpected data structure from fetch_ohlcv")
         except Exception as e:
             logging.error(f"An error occurred while fetching data: {e}")
             raise e
 
-    def calculate_sma(self, series, window):
-        return series.rolling(window=window, min_periods=1).mean()
-
-    def calculate_ema(self, series, span):
-        return series.ewm(span=span, adjust=False).mean()
-
-    def calculate_macd(self, series, fast_period=12, slow_period=26, signal_period=9):
-        exp1 = series.ewm(span=fast_period, adjust=False).mean()
-        exp2 = series.ewm(span=slow_period, adjust=False).mean()
-        macd_line = exp1 - exp2
-        signal_line = macd_line.ewm(span=signal_period, adjust=False).mean()
-        return macd_line, signal_line
-
-    def calculate_rsi(self, series, window=14):
-        delta = series.diff()
-        gain = delta.where(delta > 0, 0)
-        loss = -delta.where(delta < 0, 0)
-        avg_gain = gain.rolling(window=window, min_periods=1).mean()
-        avg_loss = loss.rolling(window=window, min_periods=1).mean()
-        rs = avg_gain / avg_loss.replace(to_replace=0, method='ffill').replace(to_replace=0, method='bfill')
-        return 100 - (100 / (1 + rs))
-
     def calculate_indicators(self, df):
+        df['SMA_50'] = ta.sma(df['close'], length=50)
+        df['SMA_200'] = ta.sma(df['close'], length=200)
+        df['EMA_12'] = ta.ema(df['close'], length=12)
+        df['EMA_26'] = ta.ema(df['close'], length=26)
+        macd = ta.macd(df['close'], fast=12, slow=26, signal=9)
+        
+        # Ensure the MACD calculation is not None
+        if macd is not None:
+            df['MACD'] = macd['MACD_12_26_9']
+            df['MACD_signal'] = macd['MACDs_12_26_9']
+        else:
+            df['MACD'] = df['MACD_signal'] = pd.Series([None] * len(df))
+        
+        df['RSI'] = ta.rsi(df['close'], length=14)
+        logging.info("Calculated technical indicators")
+        return df
+
+    def generate_signals(self, df):
+        df['Buy_Signal'] = (df['close'] > df['SMA_50']) & (df['SMA_50'] > df['SMA_200']) & (df['MACD'] > df['MACD_signal']) & (df['RSI'] < 70)
+        df['Sell_Signal'] = (df['close'] < df['SMA_50']) & (df['SMA_50'] < df['SMA_200']) & (df['MACD'] < df['MACD_signal']) & (df['RSI'] > 30)
+        logging.info("Generated buy and sell signals")
+        return df
+
+    def place_order(self, side, symbol, amount):
         try:
-            df['SMA_50'] = self.calculate_sma(df['close'], window=50)
-            df['SMA_200'] = self.calculate_sma(df['close'], window=200)
-            df['EMA_12'] = self.calculate_ema(df['close'], span=12)
-            df['EMA_26'] = self.calculate_ema(df['close'], span=26)
-            macd_line, signal_line = self.calculate_macd(df['close'])
-            df['MACD'] = macd_line
-            df['MACD_signal'] = signal_line
-            df['RSI'] = self.calculate_rsi(df['close'])
-            logging.info("Calculated technical indicators")
-            return df
+            logging.info(f"Placing {side} order for {amount} {symbol}")
+            self.exchange.create_market_order(symbol, side, amount)
+            logging.info(f"Order placed: {side} {amount} {symbol}")
         except Exception as e:
-            logging.error(f"An error occurred while calculating indicators: {e}")
+            logging.error(f"Failed to place {side} order: {e}")
             raise e
 
-    def detect_signals(self, df):
+    def manage_leverage(self, symbol, amount, risk_percent):
         try:
-            df['Buy_Signal'] = (df['close'] > df['SMA_50']) & (df['SMA_50'] > df['SMA_200']) & (df['MACD'] > df['MACD_signal']) & (df['RSI'] < 70)
-            df['Sell_Signal'] = (df['close'] < df['SMA_50']) & (df['SMA_50'] < df['SMA_200']) & (df['MACD'] < df['MACD_signal']) & (df['RSI'] > 30)
-            logging.info("Generated buy and sell signals")
-            return df
-        except Exception as e:
-            logging.error(f"An error occurred while generating signals: {e}")
-            raise e
+            balance = self.exchange.fetch_balance()
+            available_margin = balance['total']['USDT']
+            logging.info(f"Available margin: {available_margin} USDT")
+            
+            max_loss = available_margin * risk_percent
+            max_leverage = max_loss / (amount * self.exchange.fetch_ticker(symbol)['last'])
+            max_leverage = min(max_leverage, self.exchange.markets[symbol]['limits']['leverage']['max'])
+            
+            self.exchange.set_leverage(max_leverage, symbol)
+            logging.info(f"Dynamically set leverage to {max_leverage:.2f} for {symbol} based on risk management")
+            return max_leverage
+        except ccxt.BaseError as e:
+            logging.error(f"Failed to manage leverage: {e}")
+            raise
+
+    def execute_trading_strategy(self, df, symbol, amount, risk_percent):
+        try:
+            self.exchange.load_markets()
+            for i in range(len(df)):
+                logging.info(f"Processing signal: {df['signal'][i]} at index {i}")
+                if df['signal'][i] in ['buy', 'sell']:
+                    self.manage_leverage(symbol, amount, risk_percent)
+                    if df['signal'][i] == 'buy':
+                        logging.info("Buy Signal - Placing Buy Order")
+                        self.place_order('buy', symbol, amount)
+                    elif df['signal'][i] == 'sell':
+                        logging.info("Sell Signal - Placing Sell Order")
+                        self.place_order('sell', symbol, amount)
+        except ccxt.BaseError as e:
+            logging.error(f"An error occurred: {e}")
+            raise
 
     def simulate_trading(self, df, amount=0.001):
         try:
             for i in range(len(df)):
                 if df['Buy_Signal'].iloc[i]:
-                    self.execute_trade('buy', df.iloc[i], amount)
+                    self.place_order('buy', 'BTCUSDT', amount)
                 elif df['Sell_Signal'].iloc[i]:
-                    self.execute_trade('sell', df.iloc[i], amount)
+                    self.place_order('sell', 'BTCUSDT', amount)
             logging.info("Simulated trading completed")
         except Exception as e:
-            logging.error(f"An error occurred during simulated trading: {e}")
+            logging.error(f"Error occurred during simulated trading: {e}")
             raise e
 
-    def execute_trade(self, signal, data_row, amount, balance=10, risk_percentage=1, risk_reward_ratio=2):
-        try:
-            entry_price = data_row['close']
-            stop_loss = calculate_stop_loss(entry_price, risk_percentage, 10)  # Assuming leverage is always 10
-            take_profit = calculate_take_profit(entry_price, risk_reward_ratio, stop_loss)
-            position_size = calculate_position_size(balance, risk_percentage, stop_loss)
-            
-            if signal == 'buy':
-                self.exchange.create_market_buy_order('BTC/USDT', position_size)
-                logging.info(f"Buy order executed at {entry_price}, stop loss at {stop_loss}, take profit at {take_profit}")
-            elif signal == 'sell':
-                self.exchange.create_market_sell_order('BTC/USDT', position_size)
-                logging.info(f"Sell order executed at {entry_price}, stop loss at {stop_loss}, take profit at {take_profit}")
-            else:
-                logging.info("No trade executed")
-        except Exception as e:
-            logging.error(f"Error executing trade: {e}")
-            raise e
+@app.route('/webhook', methods=['POST'])
+def webhook():
+    data = request.json
+    logging.info(f"Received webhook data: {data}")
+
+    symbol = 'BTCUSDT'
+    amount = 0.001  # Example amount to trade
+    risk_percent = 0.01  # Risk 1% of the available margin per trade
+
+    api_key = os.getenv('BYBIT_API_KEY')
+    api_secret = os.getenv('BYBIT_API_SECRET')
+
+    if not api_key or not api_secret:
+        return jsonify({"error": "BYBIT_API_KEY or BYBIT_API_SECRET environment variables are not set."}), 400
+
+    bot = TradingBot(api_key, api_secret)
+    bot.initialize_exchange()
+
+    try:
+        if data['action'] == 'buy':
+            logging.info("Webhook Buy Signal - Placing Buy Order")
+            bot.place_order('buy', symbol, amount)
+        elif data['action'] == 'sell':
+            logging.info("Webhook Sell Signal - Placing Sell Order")
+            bot.place_order('sell', symbol, amount)
+        return jsonify({"status": "success"}), 200
+
+    except Exception as e:
+        logging.error(f"Failed to process webhook data: {e}")
+        return jsonify({"error": str(e)}), 500
 
 def main():
     try:
-        # Load API credentials
-        api_key, api_secret = load_api_credentials()
+        api_key = os.getenv('BYBIT_API_KEY')
+        api_secret = os.getenv('BYBIT_API_SECRET')
 
-        # Initialize TradingBot instance
         bot = TradingBot(api_key, api_secret)
-
-        # Initialize exchange and fetch historical data
         bot.initialize_exchange()
-        historical_data = bot.fetch_data(symbol='BTC/USDT', timeframe='1d', limit=365)
-
-        # Calculate indicators, generate signals, and simulate trading
+        
+        historical_data = bot.fetch_data(symbol='BTCUSDT', timeframe='1d', limit=365)
+        
         df_with_indicators = bot.calculate_indicators(historical_data)
-        signals_df = bot.detect_signals(df_with_indicators)
+        
+        signals_df = bot.generate_signals(df_with_indicators)
+        
         bot.simulate_trading(signals_df)
-
+        
         logging.info("Trading bot executed successfully.")
-
     except Exception as e:
         logging.error(f"An error occurred during the main execution: {e}")
 
 if __name__ == "__main__":
     main()
+    app.run(port=5000)

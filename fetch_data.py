@@ -36,7 +36,7 @@ def fetch_ohlcv(exchange: ccxt.Exchange, symbol: str, timeframe: str = '1h', lim
     
     Args:
     - exchange: ccxt.Exchange object
-    - symbol: Trading pair symbol (e.g., 'BTC/USDT')
+    - symbol: Trading pair symbol (e.g., 'BTCUSDT')
     - timeframe: Timeframe for OHLCV data (default: '1h')
     - limit: Number of data points to fetch (default: 100)
     
@@ -155,7 +155,7 @@ def fetch_historical_data(exchange, symbol, timeframe, limit=100, params=None):
     Fetch historical OHLCV data from the specified exchange.
     
     :param exchange: The exchange object initialized with API keys.
-    :param symbol: The trading pair symbol (e.g., 'BTC/USDT').
+    :param symbol: The trading pair symbol (e.g., 'BTCUSDT').
     :param timeframe: The timeframe for the data (e.g., '1d' for daily data).
     :param limit: The number of data points to retrieve (default is 100).
     :param params: Additional parameters for the API call (default is None).
@@ -180,7 +180,7 @@ def fetch_real_time_data(exchange: ccxt.Exchange, symbol: str, timeframe: str = 
     
     Args:
     - exchange: ccxt.Exchange object
-    - symbol: Trading pair symbol (e.g., 'BTC/USDT')
+    - symbol: Trading pair symbol (e.g., 'BTCUSDT')
     - timeframe: Timeframe for OHLCV data (default: '1m')
     - limit: Number of data points to initially fetch (default: 100)
     """
@@ -226,7 +226,7 @@ def main():
         })
 
         # Start fetching real-time data
-        symbol = 'BTC/USDT'
+        symbol = 'BTCUSDT'
         fetch_real_time_data(exchange, symbol)
 
     except ccxt.NetworkError as net_error:

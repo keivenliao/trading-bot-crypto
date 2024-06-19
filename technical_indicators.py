@@ -128,11 +128,11 @@ def main():
         bot = TradingBot(API_KEY, API_SECRET)
         bot.initialize_exchange()
         
-        df = bot.fetch_ohlcv('BTC/USDT', time_offset=time_offset)
+        df = bot.fetch_ohlcv('BTCUSDT', time_offset=time_offset)
         df = bot.calculate_indicators(df)
         df = bot.trading_strategy(df)
         
-        df.apply(lambda row: bot.execute_trade('BTC/USDT', row['signal']), axis=1)
+        df.apply(lambda row: bot.execute_trade('BTCUSDT', row['signal']), axis=1)
         
         print(df.tail())
         

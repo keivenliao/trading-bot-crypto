@@ -85,7 +85,7 @@ def execute_trade(exchange, symbol, signal, amount=1):
 
 def perform_backtesting(exchange):
     try:
-        df = fetch_ohlcv_with_retry(exchange, 'BTC/USDT', timeframe='1h', limit=500)
+        df = fetch_ohlcv_with_retry(exchange, 'BTCUSDT', timeframe='1h', limit=500)
         df = calculate_indicators(df)
         df = trading_strategy(df)
         logging.info("Backtesting complete")

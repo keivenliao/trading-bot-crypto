@@ -136,7 +136,7 @@ def main():
         exchange = initialize_exchange(API_KEY, API_SECRET)
         
         # Fetch OHLCV data
-        df = fetch_ohlcv(exchange, 'BTC/USDT', time_offset=time_offset)
+        df = fetch_ohlcv(exchange, 'BTCUSDT', time_offset=time_offset)
         
         # Calculate technical indicators
         df = calculate_indicators(df)
@@ -147,11 +147,11 @@ def main():
         # Fetch account balance
         balance = fetch_balance(exchange)
         available_usd = balance['total']['USDT']  # Adjust based on your currency and balance structure
-        btc_price = exchange.fetch_ticker('BTC/USDT')['last']
+        btc_price = exchange.fetch_ticker('BTCUSDT')['last']
         
         # Execute trades based on signals
         for _, row in df.iterrows():
-            execute_trade(exchange, 'BTC/USDT', row['signal'], available_usd, btc_price)
+            execute_trade(exchange, 'BTCUSDT', row['signal'], available_usd, btc_price)
         
         # Output the resulting DataFrame
         print("Execution completed. Here are the last few rows of the DataFrame:")

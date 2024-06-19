@@ -210,7 +210,7 @@ def main():
         synchronize_system_time()
         exchange = initialize_exchange(api_key, api_secret)
         
-        symbol = 'BTC/USDT'
+        symbol = 'BTCUSDT'
         data = fetch_historical_data(exchange, symbol)
         data = calculate_technical_indicators(data)
         data = detect_patterns(data)
@@ -223,7 +223,7 @@ def main():
         take_profit = 0.02  # 2%
         
         # Uncomment the line below to place a real order
-        # place_order_with_risk_management(exchange, symbol, side, amount, stop_loss, take_profit)
+        #place_order_with_risk_management(exchange, symbol, side, amount, stop_loss, take_profit)
 
     except ccxt.NetworkError as e:
         logging.error("A network error occurred: %s", e)

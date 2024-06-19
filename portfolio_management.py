@@ -128,7 +128,7 @@ def main():
     
     # Define target weights for rebalancing (adjust as needed)
     target_weights = {
-        'BTC/USDT:USDT': 0.33,
+        'BTCUSDT:USDT': 0.33,
         'ETH/USDT:USDT': 0.33,
         'XRP/USDT:USDT': 0.34,
     }

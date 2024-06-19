@@ -2,9 +2,13 @@ import ccxt
 import pandas as pd
 import logging
 import os
+from dotenv import load_dotenv
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+# Load environment variables from .env file
+load_dotenv(dotenv_path='C:/Users/amrita/Desktop/improvised-code-of-the-pdf-GPT-main/API.env')
 
 def initialize_exchange(api_key: str, api_secret: str) -> ccxt.Exchange:
     """
@@ -36,7 +40,6 @@ def fetch_ohlcv(exchange: ccxt.Exchange, symbol: str, timeframe: str = '1h', lim
     except ccxt.BaseError as e:
         logging.error("Failed to fetch OHLCV data: %s", e)
         raise
-
 
 def calculate_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
     """
@@ -71,20 +74,7 @@ def define_trading_strategy(df: pd.DataFrame) -> pd.DataFrame:
         logging.error("Failed to define trading strategy: %s", e)
         raise
 
-def place_order(self, side, price, symbol, amount):
-    try:
-        logging.info(f"Simulating {side} order for {amount} {symbol} at {price}")
-        self.exchange.create_order(symbol, 'market', side, amount)
-        logging.info(f"Order placed: {side} {amount} {symbol} at {price}")
-    except ccxt.InsufficientFunds as e:
-        logging.warning(f"Insufficient funds to place {side} order: {e}")
-        # Implement recovery or fallback strategy here
-    except Exception as e:
-        logging.error(f"Failed to simulate {side} order: {e}")
-        raise e
-
-
-'''def place_order(exchange: ccxt.Exchange, symbol: str, order_type: str, side: str, amount: float, price=None):
+def place_order(exchange: ccxt.Exchange, symbol: str, order_type: str, side: str, amount: float, price=None):
     """
     Place an order on the exchange.
     """
@@ -102,21 +92,59 @@ def place_order(self, side, price, symbol, amount):
     except ccxt.NetworkError as neterr:
         logging.error("Network error: %s", neterr)
     except ccxt.BaseError as e:
-        logging.error("An error occurred: %s", e)'''
+        logging.error("An error occurred: %s", e)
 
-def execute_trading_strategy(exchange: ccxt.Exchange, df: pd.DataFrame, symbol: str, amount: float):
+def manage_leverage(exchange: ccxt.Exchange, symbol: str, amount: float, risk_percent: float):
+    """
+    Dynamically manage leverage based on account balance and risk management.
+    """
+    try:
+        balance = exchange.fetch_balance()
+        available_margin = balance['total']['USDT']
+        logging.info("Available margin: %s USDT", available_margin)
+        
+        # Calculate maximum allowable loss
+        max_loss = available_margin * risk_percent
+        
+        # Calculate maximum leverage
+        max_leverage = max_loss / (amount * exchange.fetch_ticker(symbol)['last'])
+        max_leverage = min(max_leverage, exchange.markets[symbol]['limits']['leverage']['max'])
+        
+        # Set the leverage on the exchange
+        exchange.set_leverage(max_leverage, symbol)
+        logging.info("Dynamically set leverage to %.2f for %s based on risk management", max_leverage, symbol)
+        return max_leverage
+    except ccxt.BaseError as e:
+        logging.error("Failed to manage leverage: %s", e)
+        raise
+
+def execute_trading_strategy(exchange: ccxt.Exchange, df: pd.DataFrame, symbol: str, amount: float, risk_percent: float):
     """
     Execute the trading strategy based on signals.
     """
-    for i in range(len(df)):
-        if df['signal'][i] == 'buy':
-            logging.info("Buy Signal - Placing Buy Order")
-            # Uncomment the following line to actually place the order
-            # place_order(exchange, symbol, 'market', 'buy', amount)
-        elif df['signal'][i] == 'sell':
-            logging.info("Sell Signal - Placing Sell Order")
-            # Uncomment the following line to actually place the order
-            # place_order(exchange, symbol, 'market', 'sell', amount)
+    try:
+        markets = exchange.load_markets()
+        market = exchange.market(symbol)
+
+        # Log market structure for debugging
+        logging.info("Market structure for %s: %s", symbol, market)
+
+        for i in range(len(df)):
+            logging.info("Processing signal: %s at index %d", df['signal'][i], i)
+            if df['signal'][i] in ['buy', 'sell']:
+                # Dynamically manage leverage before placing an order
+                manage_leverage(exchange, symbol, amount, risk_percent)
+                
+                if df['signal'][i] == 'buy':
+                    logging.info("Buy Signal - Placing Buy Order")
+                    place_order(exchange, symbol, 'market', 'buy', amount)
+                elif df['signal'][i] == 'sell':
+                    logging.info("Sell Signal - Placing Sell Order")
+                    place_order(exchange, symbol, 'market', 'sell', amount)
+
+    except ccxt.BaseError as e:
+        logging.error("An error occurred: %s", e)
+        raise
 
 def main():
     """
@@ -130,8 +158,9 @@ def main():
         if not api_key or not api_secret:
             raise ValueError("BYBIT_API_KEY or BYBIT_API_SECRET environment variables are not set.")
 
-        symbol = 'BTC/USDT'
+        symbol = 'BTCUSDT'  # Example symbol for derivative trading with leverage
         amount = 0.001  # Example amount to trade
+        risk_percent = 0.01  # Risk 1% of the available margin per trade
 
         # Initialize exchange
         exchange = initialize_exchange(api_key, api_secret)
@@ -146,7 +175,7 @@ def main():
         df = define_trading_strategy(df)
         
         # Execute trading strategy
-        execute_trading_strategy(exchange, df, symbol, amount)
+        execute_trading_strategy(exchange, df, symbol, amount, risk_percent)
                 
     except ccxt.NetworkError as e:
         logging.error("A network error occurred: %s", e)

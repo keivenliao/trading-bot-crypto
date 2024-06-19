@@ -24,7 +24,7 @@ def test_api_credentials(api_key, api_secret):
         logging.info("Successfully fetched open orders: %s", orders)
 
         #Example: Place a test order (uncomment to execute)
-        test_order = exchange.create_limit_buy_order('BTC/USDT', 0.001, 35000)
+        test_order = exchange.create_limit_buy_order('BTCUSDT', 0.001, 35000)
         logging.info("Test order placed successfully: %s", test_order)
 
         return balance, orders

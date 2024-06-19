@@ -9,12 +9,12 @@ def example_usage(exchanges):
         try:
             # Example operations with each exchange
             logging.info("Fetching ticker data from Bybit...")
-            ticker = exchange.fetch_ticker('BTC/USDT')
+            ticker = exchange.fetch_ticker('BTCUSDT')
             logging.info("Ticker data: %s", ticker)
 
             logging.info("Placing a mock order on Bybit...")
             # Reduced amount to 0.0001 BTC for testing
-            order = exchange.create_order('BTC/USDT', 'limit', 'buy', 0.0001, 66000)  # Adjusted price for the order
+            order = exchange.create_order('BTCUSDT', 'limit', 'buy', 0.0001, 66000)  # Adjusted price for the order
             logging.info("Order response: %s", order)
         
         except ccxt.NetworkError as net_error:
