@@ -1,22 +1,26 @@
 import logging
+
 import ccxt
 
+from exchanges import send_notification
+
+
 def example_usage(exchanges):
-    """
-    Perform example operations with each exchange.
-    """
     for exchange in exchanges:
         try:
-            # Example operations with each exchange
             logging.info("Fetching ticker data from Bybit...")
             ticker = exchange.fetch_ticker('BTCUSDT')
             logging.info("Ticker data: %s", ticker)
 
             logging.info("Placing a mock order on Bybit...")
-            # Reduced amount to 0.0001 BTC for testing
-            order = exchange.create_order('BTCUSDT', 'limit', 'buy', 0.0001, 66000)  # Adjusted price for the order
+            order = exchange.create_order('BTCUSDT', 'limit', 'buy', 0.0001, 66000)
             logging.info("Order response: %s", order)
-        
+
+            logging.info("Fetching account balance...")
+            balance = exchange.fetch_balance()
+            logging.info("Account balance: %s", balance)
+
+            send_notification(f"Placed a mock order and fetched balance: {balance}")
         except ccxt.NetworkError as net_error:
             logging.error("A network error occurred with Bybit: %s", net_error)
         except ccxt.ExchangeError as exchange_error:

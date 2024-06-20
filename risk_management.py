@@ -132,6 +132,25 @@ def detect_double_top(data):
     except Exception as e:
         logging.error("Failed to detect Double Top pattern: %s", e)
         raise e
+    
+    
+def calculate_position_size(capital, risk_per_trade, entry_price, stop_loss_price):
+    risk_amount = capital * (risk_per_trade / 100)
+    position_size = risk_amount / abs(entry_price - stop_loss_price)
+    return position_size
+
+def calculate_stop_loss(entry_price, risk_percentage, leverage):
+    stop_loss_distance = entry_price * (risk_percentage / 100) / leverage
+    stop_loss = entry_price - stop_loss_distance if entry_price > 0 else entry_price + stop_loss_distance
+    return stop_loss
+
+def calculate_take_profit(entry_price, risk_reward_ratio, stop_loss):
+    take_profit_distance = abs(entry_price - stop_loss) * risk_reward_ratio
+    take_profit = entry_price + take_profit_distance if entry_price > stop_loss else entry_price - take_profit_distance
+    return take_profit
+
+
+
 
 def place_order_with_risk_management(exchange, symbol, side, amount, stop_loss, take_profit):
     """
@@ -210,7 +229,7 @@ def main():
         synchronize_system_time()
         exchange = initialize_exchange(api_key, api_secret)
         
-        symbol = 'BTCUSDT'
+        symbol = 'BTC/USDT'
         data = fetch_historical_data(exchange, symbol)
         data = calculate_technical_indicators(data)
         data = detect_patterns(data)
@@ -223,7 +242,7 @@ def main():
         take_profit = 0.02  # 2%
         
         # Uncomment the line below to place a real order
-        #place_order_with_risk_management(exchange, symbol, side, amount, stop_loss, take_profit)
+        # place_order_with_risk_management(exchange, symbol, side, amount, stop_loss, take_profit)
 
     except ccxt.NetworkError as e:
         logging.error("A network error occurred: %s", e)

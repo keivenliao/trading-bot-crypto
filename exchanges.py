@@ -5,7 +5,7 @@ import pandas as pd
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
-load_dotenv(dotenv_path='C:/Users/amrita/Desktop/improvised-code-of-the-pdf-GPT-main/API.env')
+load_dotenv(dotenv_path='F:\trading\improvised-code-of-the-pdf-GPT-main\improvised-code-of-the-pdf-GPT-main/API.env')
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -35,12 +35,32 @@ def track_performance_metrics(df):
     elif moving_average_10.iloc[-1] < moving_average_50.iloc[-1]:
         send_notification("10-period moving average crossed below 50-period moving average.")
 
+def send_email_notification(subject, message):
+    import smtplib
+    from email.mime.text import MIMEText
+
+    sender = "your_email@example.com"
+    receiver = "receiver_email@example.com"
+    password = "your_email_password"
+
+    msg = MIMEText(message)
+    msg["Subject"] = subject
+    msg["From"] = sender
+    msg["To"] = receiver
+
+    try:
+        with smtplib.SMTP("smtp.example.com", 587) as server:
+            server.starttls()
+            server.login(sender, password)
+            server.sendmail(sender, receiver, msg.as_string())
+            logging.info("Email notification sent successfully")
+    except Exception as e:
+        logging.error("Failed to send email notification: %s", e)
+
+
 def send_notification(message):
-    """
-    Send a notification with the given message. 
-    (In this template, it just logs the message.)
-    """
     logging.info(message)
+    send_email_notification("Trading Bot Notification", message)
 
 def initialize_exchange(api_key, api_secret):
     """

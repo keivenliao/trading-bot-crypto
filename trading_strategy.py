@@ -32,6 +32,17 @@ def synchronize_system_time():
 
 # tradingbot/trading_strategy.py
 
+def detect_signals(df):
+    latest = df.iloc[-1]
+    previous = df.iloc[-2]
+
+    # Example strategy combining SMA crossover and RSI
+    if (previous['SMA_20'] < previous['SMA_50'] and latest['SMA_20'] > latest['SMA_50']) and latest['RSI'] < 70:
+        return 'buy'
+    elif (previous['SMA_20'] > previous['SMA_50'] and latest['SMA_20'] < latest['SMA_50']) and latest['RSI'] > 30:
+        return 'sell'
+    return 'hold'
+
 
 def generate_signals(df):
     """

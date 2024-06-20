@@ -1,21 +1,30 @@
-# APIs.py
-
-import os
+import ccxt
 from dotenv import load_dotenv
+import os
 
-# Load environment variables from .env file
-load_dotenv()
-
-def load_api_credentials(key_number):
-    """
-    Load API credentials from environment variables.
-    
-    Parameters:
-    - key_number (int): The index number of the API key to load (1 or 2).
-    
-    Returns:
-    - (str, str): Tuple containing the API key and API secret.
-    """
-    api_key = os.getenv(f'BYBIT_API_KEY_{key_number}')
-    api_secret = os.getenv(f'BYBIT_API_SECRET_{key_number}')
+def load_api_credentials():
+    load_dotenv()
+    api_key = os.getenv('BYBIT_API_KEY')
+    api_secret = os.getenv('BYBIT_API_SECRET')
     return api_key, api_secret
+
+def create_exchange_instance():
+    api_key, api_secret = load_api_credentials()
+    exchange = ccxt.bybit({
+        'apiKey': api_key,
+        'secret': api_secret,
+        'options': {
+            'defaultType': 'future',  # Setting type to futures
+        },
+    })
+    return exchange
+
+def set_leverage(exchange, symbol, leverage):
+    markets = exchange.load_markets()
+    if symbol in markets:
+        market = markets[symbol]
+        exchange.fapiPrivate_post_leverage({
+            'symbol': market['id'],
+            'leverage': leverage,
+        })
+

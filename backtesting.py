@@ -38,18 +38,19 @@ def fetch_data(exchange, symbol='BTCUSDT', timeframe='1h', limit=100):
         raise error
 
 def calculate_indicators(df, sma_short=20, sma_long=50, rsi_period=14, macd_fast=12, macd_slow=26, macd_signal=9):
-    """Calculate technical indicators and append to the DataFrame."""
     try:
         df.ta.sma(length=sma_short, append=True)
         df.ta.sma(length=sma_long, append=True)
         df.ta.rsi(length=rsi_period, append=True)
         df.ta.macd(fast=macd_fast, slow=macd_slow, signal=macd_signal, append=True)
-        
-        logging.info("Calculated SMA, RSI, and MACD indicators")
+        df.ta.bbands(length=20, std=2, append=True)  # Bollinger Bands
+        df.ta.atr(length=14, append=True)  # Average True Range
+        logging.info("Calculated SMA, RSI, MACD, Bollinger Bands, and ATR indicators")
         return df
     except Exception as e:
         logging.error("Error during technical analysis: %s", e)
         raise e
+
 
 def detect_signals(df, sma_short=20, sma_long=50, rsi_overbought=70, rsi_oversold=30):
     """Detect trading signals based on technical indicators."""
@@ -94,8 +95,7 @@ def fetch_real_time_balance(exchange, currency='USDT'):
         logging.error("Error fetching real-time balance: %s", error)
         raise error
 
-def backtest_strategy(df, initial_capital=1000, position_size=1):
-    """Backtest trading strategy on historical data."""
+def backtest_strategy(df, initial_capital=1000, position_size=1, transaction_cost=0.001):
     try:
         df['signal'] = df.apply(lambda row: detect_signals(df), axis=1)
         df['position'] = 0  # 1 for long, -1 for short, 0 for no position
@@ -107,18 +107,16 @@ def backtest_strategy(df, initial_capital=1000, position_size=1):
             if df.at[i, 'signal'] == 'buy' and current_position == 0:
                 current_position = position_size
                 df.at[i, 'position'] = current_position
-                df.at[i, 'capital'] -= df.at[i, 'close'] * position_size  # Deduct cost of buying
+                df.at[i, 'capital'] -= df.at[i, 'close'] * position_size * (1 + transaction_cost)  # Deduct cost of buying including transaction cost
 
-                # Simulate buy trade execution (update balance)
-                df.at[i, 'balance'] = df.at[i - 1, 'balance'] - df.at[i, 'close'] * position_size
+                df.at[i, 'balance'] = df.at[i - 1, 'balance'] - df.at[i, 'close'] * position_size * (1 + transaction_cost)
 
             elif df.at[i, 'signal'] == 'sell' and current_position == position_size:
                 current_position = 0
                 df.at[i, 'position'] = current_position
-                df.at[i, 'capital'] += df.at[i, 'close'] * position_size  # Add profit from selling
+                df.at[i, 'capital'] += df.at[i, 'close'] * position_size * (1 - transaction_cost)  # Add profit from selling minus transaction cost
 
-                # Simulate sell trade execution (update balance)
-                df.at[i, 'balance'] = df.at[i - 1, 'balance'] + df.at[i, 'close'] * position_size
+                df.at[i, 'balance'] = df.at[i - 1, 'balance'] + df.at[i, 'close'] * position_size * (1 - transaction_cost)
 
         final_balance = df.iloc[-1]['balance']
         logging.info("Backtesting completed. Final balance: %.2f", final_balance)
@@ -126,6 +124,12 @@ def backtest_strategy(df, initial_capital=1000, position_size=1):
     except Exception as e:
         logging.error("Error during backtesting: %s", e)
         raise e
+
+def calculate_position_size(capital, risk_per_trade, entry_price, stop_loss_price):
+    risk_amount = capital * (risk_per_trade / 100)
+    position_size = risk_amount / abs(entry_price - stop_loss_price)
+    return position_size
+
 
 def perform_backtesting(exchange):
     """

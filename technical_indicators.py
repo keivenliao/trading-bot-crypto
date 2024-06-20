@@ -41,19 +41,34 @@ class TradingBot:
             logging.error("Error fetching OHLCV data: %s", e)
             raise e
 
-    def calculate_indicators(self, df):
+    def calculate_indicators(df, sma_short=20, sma_long=50, sma_longest=200, ema_short=9, ema_mid=12, ema_long=26, rsi_period=14, macd_fast=12, macd_slow=26, macd_signal=9):
         try:
-            df['SMA_50'] = ta.sma(df['close'], length=50)
-            df['SMA_200'] = ta.sma(df['close'], length=200)
-            df['EMA_12'] = ta.ema(df['close'], length=12)
-            df['EMA_26'] = ta.ema(df['close'], length=26)
-            macd_data = ta.macd(df['close'], fast=12, slow=26, signal=9)
-            df['MACD'], df['MACD_signal'], _ = macd_data
-            df['RSI'] = ta.rsi(df['close'], length=14)
-            logging.info("Calculated technical indicators")
+            # Calculate SMAs
+            df.ta.sma(length=sma_short, append=True)
+            df.ta.sma(length=sma_long, append=True)
+            df.ta.sma(length=sma_longest, append=True)
+        
+            # Calculate EMAs
+            df.ta.ema(length=ema_short, append=True)
+            df.ta.ema(length=ema_mid, append=True)
+            df.ta.ema(length=ema_long, append=True)
+        
+            # Calculate RSI
+            df.ta.rsi(length=rsi_period, append=True)
+        
+            # Calculate MACD
+            df.ta.macd(fast=macd_fast, slow=macd_slow, signal=macd_signal, append=True)
+        
+            # Calculate Bollinger Bands
+            df.ta.bbands(length=20, std=2, append=True)
+        
+            # Calculate ATR (Average True Range)
+            df.ta.atr(length=14, append=True)
+
+            logging.info("Calculated SMA, EMA, RSI, MACD, Bollinger Bands, and ATR indicators")
             return df
         except Exception as e:
-            logging.error("An error occurred during indicator calculation: %s", e)
+            logging.error("Error during technical analysis: %s", e)
             raise e
 
     def trading_strategy(self, df):
@@ -128,11 +143,11 @@ def main():
         bot = TradingBot(API_KEY, API_SECRET)
         bot.initialize_exchange()
         
-        df = bot.fetch_ohlcv('BTCUSDT', time_offset=time_offset)
+        df = bot.fetch_ohlcv('BTC/USDT', time_offset=time_offset)
         df = bot.calculate_indicators(df)
         df = bot.trading_strategy(df)
         
-        df.apply(lambda row: bot.execute_trade('BTCUSDT', row['signal']), axis=1)
+        df.apply(lambda row: bot.execute_trade('BTC/USDT', row['signal']), axis=1)
         
         print(df.tail())
         
