@@ -3,7 +3,6 @@ import ccxt
 import pandas as pd
 import pandas_ta as ta
 import logging
-import pandas_ta as ta
 from synchronize_exchange_time import synchronize_system_time
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -41,29 +40,36 @@ class TradingBot:
             logging.error("Error fetching OHLCV data: %s", e)
             raise e
 
-    def calculate_indicators(df, sma_short=20, sma_long=50, sma_longest=200, ema_short=9, ema_mid=12, ema_long=26, rsi_period=14, macd_fast=12, macd_slow=26, macd_signal=9):
+
+    
+    def calculate_indicators(self, df, sma_short=20, sma_long=50, sma_longest=200, ema_short=9, ema_mid=12, ema_long=26, rsi_period=14, macd_fast=12, macd_slow=26, macd_signal=9):
         try:
             # Calculate SMAs
-            df.ta.sma(length=sma_short, append=True)
-            df.ta.sma(length=sma_long, append=True)
-            df.ta.sma(length=sma_longest, append=True)
+            df['SMA_20'] = ta.sma(df['close'], length=sma_short)
+            df['SMA_50'] = ta.sma(df['close'], length=sma_long)
+            df['SMA_200'] = ta.sma(df['close'], length=sma_longest)
         
             # Calculate EMAs
-            df.ta.ema(length=ema_short, append=True)
-            df.ta.ema(length=ema_mid, append=True)
-            df.ta.ema(length=ema_long, append=True)
+            df['EMA_9'] = ta.ema(df['close'], length=ema_short)
+            df['EMA_12'] = ta.ema(df['close'], length=ema_mid)
+            df['EMA_26'] = ta.ema(df['close'], length=ema_long)
         
             # Calculate RSI
-            df.ta.rsi(length=rsi_period, append=True)
+            df['RSI'] = ta.rsi(df['close'], length=rsi_period)
         
             # Calculate MACD
-            df.ta.macd(fast=macd_fast, slow=macd_slow, signal=macd_signal, append=True)
+            macd = ta.macd(df['close'], fast=macd_fast, slow=macd_slow, signal=macd_signal)
+            df['MACD'] = macd['MACD_12_26_9']
+            df['MACD_signal'] = macd['MACDs_12_26_9']
         
             # Calculate Bollinger Bands
-            df.ta.bbands(length=20, std=2, append=True)
+            bbands = ta.bbands(df['close'], length=20, std=2)
+            df['BB_upper'] = bbands['BBU_20_2.0']
+            df['BB_middle'] = bbands['BBM_20_2.0']
+            df['BB_lower'] = bbands['BBL_20_2.0']
         
             # Calculate ATR (Average True Range)
-            df.ta.atr(length=14, append=True)
+            df['ATR'] = ta.atr(df['high'], df['low'], df['close'], length=14)
 
             logging.info("Calculated SMA, EMA, RSI, MACD, Bollinger Bands, and ATR indicators")
             return df

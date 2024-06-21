@@ -46,9 +46,10 @@ def calculate_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
     Calculate technical indicators for trading strategy.
     """
     try:
-        df['SMA_50'] = df['close'].rolling(window=50).mean()
-        df['SMA_200'] = df['close'].rolling(window=200).mean()
-        logging.info("Calculated SMA_50 and SMA_200")
+        # Use smaller windows for SMA to ensure crossovers in the limited dataset
+        df['SMA_10'] = df['close'].rolling(window=10).mean()
+        df['SMA_30'] = df['close'].rolling(window=30).mean()
+        logging.info("Calculated SMA_10 and SMA_30")
         return df
     except Exception as e:
         logging.error("Failed to calculate technical indicators: %s", e)
@@ -61,14 +62,17 @@ def define_trading_strategy(df: pd.DataFrame) -> pd.DataFrame:
     try:
         signals = ['hold']
         for i in range(1, len(df)):
-            if df['SMA_50'][i] > df['SMA_200'][i] and df['SMA_50'][i-1] <= df['SMA_200'][i-1]:
+            if df['SMA_10'][i] > df['SMA_30'][i] and df['SMA_10'][i-1] <= df['SMA_30'][i-1]:
                 signals.append('buy')
-            elif df['SMA_50'][i] < df['SMA_200'][i] and df['SMA_50'][i-1] >= df['SMA_200'][i-1]:
+            elif df['SMA_10'][i] < df['SMA_30'][i] and df['SMA_10'][i-1] >= df['SMA_30'][i-1]:
                 signals.append('sell')
             else:
                 signals.append('hold')
         df['signal'] = signals
         logging.info("Applied trading strategy")
+        
+        # Log the first few signals for debugging
+        logging.info("First few signals: %s", df['signal'].head(10).tolist())
         return df
     except Exception as e:
         logging.error("Failed to define trading strategy: %s", e)
@@ -106,17 +110,58 @@ def manage_leverage(exchange: ccxt.Exchange, symbol: str, amount: float, risk_pe
         # Calculate maximum allowable loss
         max_loss = available_margin * risk_percent
         
-        # Calculate maximum leverage
-        max_leverage = max_loss / (amount * exchange.fetch_ticker(symbol)['last'])
-        max_leverage = min(max_leverage, exchange.markets[symbol]['limits']['leverage']['max'])
+        # Fetch ticker and leverage limit
+        ticker = exchange.fetch_ticker(symbol)
+        max_leverage = exchange.markets[symbol]['limits']['leverage']['max'] if symbol in exchange.markets else 1
         
-        # Set the leverage on the exchange
-        exchange.set_leverage(max_leverage, symbol)
-        logging.info("Dynamically set leverage to %.2f for %s based on risk management", max_leverage, symbol)
-        return max_leverage
+        # Calculate maximum leverage
+        calculated_leverage = min(max_loss / (amount * ticker['last']), max_leverage)
+        
+        # Set the leverage on the exchange if within bounds
+        if 1 <= calculated_leverage <= max_leverage:
+            exchange.set_leverage(calculated_leverage, symbol)
+            logging.info("Dynamically set leverage to %.2f for %s based on risk management", calculated_leverage, symbol)
+        else:
+            logging.warning("Calculated leverage %.2f is out of bounds for %s. Using default leverage of 1.", calculated_leverage, symbol)
+            exchange.set_leverage(50, symbol)  # Set to default leverage of 1
+
+        return calculated_leverage
+    except KeyError as ke:
+        logging.error("Symbol %s not found in markets: %s", symbol, ke)
+        raise
     except ccxt.BaseError as e:
         logging.error("Failed to manage leverage: %s", e)
         raise
+
+def place_order(exchange, symbol, order_type, side, amount, price=None):
+    try:
+        if order_type == 'limit':
+            order = exchange.create_order(symbol, order_type, side, amount, price)
+        elif order_type == 'market':
+            order = exchange.create_order(symbol, order_type, side, amount)
+        return order
+    except Exception as e:
+        print(f"An error occurred: {e}")
+        return None
+
+def place_order(exchange, side, price, symbol, amount):
+    try:
+        order = exchange.create_order(symbol, 'market', side, amount)
+        logging.info(f"Placed {side} order for {amount} {symbol} at {price}")
+        return order
+    except ccxt.NetworkError as e:
+        logging.error(f"Failed to place order: {e}")
+        raise
+
+def execute_trading_decision(signal):
+    api_key = 'your_api_key'
+    api_secret = 'your_api_secret'
+    exchange = ccxt.bybit({'apiKey': api_key, 'secret': api_secret})
+
+    if signal == 'buy':
+        place_order(exchange, 'BTC/USDT', 'market', 'buy', 0.01)
+    elif signal == 'sell':
+        place_order(exchange, 'BTC/USDT', 'market', 'sell', 0.01)
 
 def execute_trading_strategy(exchange: ccxt.Exchange, df: pd.DataFrame, symbol: str, amount: float, risk_percent: float):
     """

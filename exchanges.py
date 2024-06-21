@@ -5,7 +5,7 @@ import pandas as pd
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
-load_dotenv(dotenv_path='F:\trading\improvised-code-of-the-pdf-GPT-main\improvised-code-of-the-pdf-GPT-main/API.env')
+load_dotenv(dotenv_path=r'C:\Users\amrita\Desktop\improvised-code-of-the-pdf-GPT-main\API.env')
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')

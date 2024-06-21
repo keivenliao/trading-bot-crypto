@@ -1,3 +1,9 @@
+import subprocess
+import sys
+
+# Ensure the required library is installed
+subprocess.check_call([sys.executable, "-m", "pip", "install", "scikit-learn"])
+
 import ccxt
 import pandas as pd
 import pandas_ta as ta
@@ -5,10 +11,16 @@ import logging
 import os
 import time
 import ntplib
+import numpy as np
+import gym
+from stable_baselines3 import PPO
+from sklearn.preprocessing import MinMaxScaler
+from keras.models import Sequential
+from keras.layers import LSTM, Dense
 from datetime import datetime
 import ta
-
 from fetch_data import main
+
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -16,6 +28,35 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 # Environment variables for API credentials
 API_KEY = os.getenv('BYBIT_API_KEY')
 API_SECRET = os.getenv('BYBIT_API_SECRET')
+
+class TradingEnv(gym.Env):
+    def __init__(self, df):
+        super(TradingEnv, self).__init__()
+        self.df = df
+        self.current_step = 0
+        self.action_space = gym.spaces.Discrete(3)  # 0: Hold, 1: Buy, 2: Sell
+        self.observation_space = gym.spaces.Box(low=0, high=1, shape=(len(df.columns),))
+
+    def reset(self):
+        self.current_step = 0
+        return self.df.iloc[self.current_step].values
+
+    def step(self, action):
+        self.current_step += 1
+        reward = self.df.iloc[self.current_step]['profit'] if action == 1 else -self.df.iloc[self.current_step]['loss']
+        done = self.current_step == len(self.df) - 1
+        obs = self.df.iloc[self.current_step].values
+        return obs, reward, done, {}
+
+def train_rl_model(df):
+    env = TradingEnv(df)
+    model = PPO('MlpPolicy', env, verbose=1)
+    model.learn(total_timesteps=10000)
+    return model
+
+def rl_trading_decision(model, obs):
+    action, _ = model.predict(obs)
+    return action
 
 def synchronize_system_time():
     """
@@ -135,6 +176,35 @@ def calculate_indicators(df):
         logging.error("Error calculating indicators: %s", e)
         raise e
     return df
+
+def prepare_data(df, n_features):
+    data = df.values
+    scaler = MinMaxScaler(feature_range=(0, 1))
+    scaled_data = scaler.fit_transform(data)
+    X, y = [], []
+    for i in range(len(scaled_data)-n_features-1):
+        X.append(scaled_data[i:(i+n_features), 0])
+        y.append(scaled_data[i + n_features, 0])
+    return np.array(X), np.array(y), scaler
+
+def build_and_train_model(df):
+    n_features = 60
+    X, y, scaler = prepare_data(df, n_features)
+
+    model = Sequential()
+    model.add(LSTM(50, return_sequences=True, input_shape=(n_features, 1)))
+    model.add(LSTM(50))
+    model.add(Dense(1))
+    model.compile(optimizer='adam', loss='mean_squared_error')
+    model.fit(X, y, epochs=20, batch_size=32)
+
+    return model, scaler
+
+def predict_prices(model, scaler, df):
+    n_features = 60
+    X, _, _ = prepare_data(df, n_features)
+    predicted = model.predict(X)
+    return scaler.inverse_transform(predicted)
 
 def trading_strategy(df):
     """

@@ -1,3 +1,4 @@
+from ast import Param
 import logging
 import time
 import ntplib
@@ -43,17 +44,15 @@ class TradingBot:
             logging.error(f"Failed to initialize exchange: {e}")
             raise e
 
-    def fetch_data(self, symbol='BTC/USDT', timeframe='1h', limit=100):
+    def fetch_data(self, symbol, timeframe='1h', limit=100):
         try:
-            params = {
-                'recvWindow': 10000,
-                'timestamp': int(time.time() * 1000 + self.synchronize_time())
-            }
-            df = fetch_ohlcv(self.exchange, symbol, timeframe, limit, params=params)
+            ohlcv = fetch_ohlcv(self.exchange, symbol, timeframe=timeframe, limit=limit)
+            df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+            df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
             logging.info(f"Fetched OHLCV data for {symbol}")
             return df
-        except Exception as e:
-            logging.error(f"An error occurred while fetching data: {e}")
+        except ccxt.BaseError as e:
+            logging.error("Error fetching OHLCV data: %s", e)
             raise e
 
     def calculate_sma(self, series, window):
@@ -69,14 +68,24 @@ class TradingBot:
         signal_line = macd_line.ewm(span=signal_period, adjust=False).mean()
         return macd_line, signal_line
 
-    def calculate_rsi(self, series, window=14):
+    def calculate_rsi(self, series, period=14):
         delta = series.diff()
-        gain = delta.where(delta > 0, 0)
-        loss = -delta.where(delta < 0, 0)
-        avg_gain = gain.rolling(window=window, min_periods=1).mean()
-        avg_loss = loss.rolling(window=window, min_periods=1).mean()
+        gain = (delta.where(delta > 0, 0)).fillna(0)
+        loss = (-delta.where(delta < 0, 0)).fillna(0)
+        avg_gain = gain.rolling(window=period, min_periods=1).mean()
+        avg_loss = loss.rolling(window=period, min_periods=1).mean()
         rs = avg_gain / avg_loss.replace(to_replace=0, method='ffill').replace(to_replace=0, method='bfill')
-        return 100 - (100 / (1 + rs))
+        rsi = 100 - (100 / (1 + rs))
+        return rsi
+
+    def place_order(self, side, price, symbol, amount):
+        try:
+            order = self.exchange.create_order(symbol, 'market', side, amount)
+            logging.info(f"Placed {side} order for {amount} {symbol} at {price}")
+            return order
+        except ccxt.NetworkError as e:
+            logging.error(f"Failed to place order: {e}")
+            raise
 
     def calculate_indicators(self, df):
         try:
@@ -121,7 +130,7 @@ class TradingBot:
             entry_price = data_row['close']
             stop_loss = calculate_stop_loss(entry_price, risk_percentage, 10)  # Assuming leverage is always 10
             take_profit = calculate_take_profit(entry_price, risk_reward_ratio, stop_loss)
-            position_size = calculate_position_size(balance, risk_percentage, stop_loss)
+            position_size = calculate_position_size(balance, risk_percentage, entry_price, stop_loss)
             
             if signal == 'buy':
                 self.exchange.create_market_buy_order('BTC/USDT', position_size)
@@ -135,6 +144,7 @@ class TradingBot:
             logging.error(f"Error executing trade: {e}")
             raise e
 
+    @staticmethod
     def main():
         try:
             # Load API credentials
@@ -152,12 +162,12 @@ class TradingBot:
             signals_df = bot.detect_signals(df_with_indicators)
             bot.simulate_trading(signals_df)
 
-                    
             logging.info("Trading bot executed successfully.")
 
         except Exception as e:
             logging.error(f"An error occurred during the main execution: {e}")
 
-    if __name__ == "__main__":
-        
-        main()
+if __name__ == "__main__":
+    TradingBot.main()
+
+

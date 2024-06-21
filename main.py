@@ -5,7 +5,15 @@ from retrying import retry
 import pandas as pd
 import time
 from datetime import datetime
+from sympy import Order
 import ta
+import pandas as pd
+from fetch_data import get_historical_data, get_tweets, analyze_sentiment
+from trading_strategy import build_and_train_model, predict_prices, train_rl_model, rl_trading_decision
+from portfolio_management import calculate_returns, optimize_portfolio
+from tradingbot import execute_trading_decision
+import tradingbot
+ # type: ignore
 
 def setup_logging():
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -94,6 +102,30 @@ def perform_backtesting(exchange):
         logging.error("Error during backtesting: %s", e)
 
 def main():
+
+    tradingbot.initialize_exchange()
+    
+    # Synchronize time (optional)
+    time_offset = tradingbot.synchronize_time()
+    print(f"Time offset: {time_offset} seconds")
+    
+    # Fetch data
+    symbol = 'BTC/USDT'
+    timeframe = '1h'
+    limit = 100
+    df = tradingbot.fetch_data(symbol, timeframe, limit)
+    print(f"Fetched data:\n{df.head()}")
+    
+    # Calculate indicators
+    df_with_indicators = tradingbot.calculate_indicators(df)
+    print(f"Data with indicators:\n{df_with_indicators.head()}")
+    
+    # Example: Place an order
+    side = 'buy'
+    price = 40000  # Example price
+    amount = 0.001  # Example amount
+    order = tradingbot.place_order(side, price, symbol, amount)
+    print(f"Placed order:\n{order}")
     try:
         setup_logging()
         api_key, api_secret = load_api_credentials()
@@ -109,6 +141,43 @@ def main():
         logging.error("ValueError: %s", e)
     except Exception as e:
         logging.error("An unexpected error occurred: %s", e)
+
+# Fetch historical data
+df = get_historical_data('historical_data.csv')
+
+# Build and train predictive model
+model, scaler = build_and_train_model(df)
+
+# Predict prices
+predicted_prices = predict_prices(model, scaler, df)
+
+# Sentiment analysis
+api_key = 'your_twitter_api_key'
+api_secret = 'your_twitter_api_secret'
+tweets = get_tweets(api_key, api_secret, 'BTC')
+sentiment_score = analyze_sentiment(tweets)
+
+# RL model training
+rl_model = train_rl_model(df)
+
+# Portfolio optimization
+returns, cov_matrix = calculate_returns(df)
+optimal_weights = optimize_portfolio(returns, cov_matrix)
+print(f"Optimal asset allocation: {optimal_weights}")
+
+# Make trading decisions
+obs = df.iloc[-1].values  # Current observation
+rl_action = rl_trading_decision(rl_model, obs)
+
+if sentiment_score > 0.1:
+    decision = 'buy'
+elif sentiment_score < -0.1:
+    decision = 'sell'
+else:
+    decision = 'hold'
+
+# Execute trading decision
+execute_trading_decision(decision)
 
 if __name__ == "__main__":
     main()

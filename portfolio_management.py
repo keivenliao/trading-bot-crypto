@@ -1,6 +1,10 @@
 import logging
 import pandas as pd
 import ccxt
+import numpy as np
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense
+from scipy.optimize import minimize
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -11,6 +15,47 @@ exchange = ccxt.bybit({
     'secret': 'KA3wvyIvMCJjGZEB0KVjH9WJSi30iwc9pIiG',
     'enableRateLimit': True,
 })
+
+def calculate_returns(df):
+    returns = df.pct_change().mean() * 252
+    cov_matrix = df.pct_change().cov() * 252
+    return returns, cov_matrix
+
+def optimize_portfolio(returns, cov_matrix, risk_free_rate=0.01):
+    num_assets = len(returns)
+    args = (returns, cov_matrix, risk_free_rate)
+
+    def portfolio_performance(weights, returns, cov_matrix, risk_free_rate):
+        returns = np.dot(weights, returns)
+        volatility = np.sqrt(np.dot(weights.T, np.dot(cov_matrix, weights)))
+        sharpe_ratio = (returns - risk_free_rate) / volatility
+        return -sharpe_ratio
+
+    constraints = ({'type': 'eq', 'fun': lambda x: np.sum(x) - 1})
+    bounds = tuple((0, 1) for asset in range(num_assets))
+    result = minimize(portfolio_performance, num_assets*[1./num_assets,], args=args, method='SLSQP', bounds=bounds, constraints=constraints)
+    return result.x
+
+def build_portfolio_model(input_dim):
+    model = Sequential()
+    model.add(Dense(64, input_dim=input_dim, activation='relu'))
+    model.add(Dense(32, activation='relu'))
+    model.add(Dense(1, activation='linear'))
+    model.compile(optimizer='adam', loss='mean_squared_error')
+    return model
+
+def optimize_portfolio(returns, cov_matrix):
+    num_assets = len(returns)
+    model = build_portfolio_model(num_assets)
+
+    # Generate synthetic data for training
+    X_train = np.random.rand(1000, num_assets)
+    y_train = np.dot(X_train, returns)
+
+    model.fit(X_train, y_train, epochs=100, batch_size=32)
+
+    weights = model.predict(np.array([returns]))[0]
+    return weights / np.sum(weights)
 
 def fetch_derivative_positions():
     """Fetch current derivative positions from Bybit."""
@@ -136,7 +181,7 @@ def main():
     # Rebalance the portfolio
     rebalance_portfolio(portfolio, target_weights)
     
-    # Track portfolio performance after rebalancing``
+    # Track portfolio performance after rebalancing
     track_portfolio_performance(portfolio)
 
 if __name__ == "__main__":
