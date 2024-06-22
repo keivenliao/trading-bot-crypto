@@ -8,7 +8,7 @@ from fetch_data import fetch_ohlcv
 from risk_management import calculate_stop_loss, calculate_take_profit, calculate_position_size
 from database import create_db_connection, store_data_to_db, fetch_historical_data
 from sentiment_analysis import fetch_real_time_sentiment
-from technical_indicators import calculate_sma, calculate_rsi, 
+from technical_indicators import calculate_sma, calculate_rsi, calculate_macd, calculate_bollinger_bands, calculate_atr
 from config import API_KEY, API_SECRET, DB_FILE, TRAILING_STOP_PERCENT, RISK_REWARD_RATIO
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
