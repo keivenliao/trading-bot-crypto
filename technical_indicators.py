@@ -1,10 +1,8 @@
-from curses import window
-from datetime import date
 import time
+import logging
 import ccxt
 import pandas as pd
 import pandas_ta as ta
-import logging
 from synchronize_exchange_time import synchronize_system_time
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -15,41 +13,6 @@ class TradingBot:
         self.api_secret = api_secret
         self.exchange = None
 
-    def calculate_sma(data, window):
-        return data['close'].rolling(window=window).mean()
-
-def calculate_rsi(data, window=14):
-    delta = data['close'].diff()
-    gain = (delta.where(delta > 0, 0)).fillna(0)
-    loss = (-delta.where(delta < 0, 0)).fillna(0)
-    avg_gain = gain.rolling(window=window).mean()
-    avg_loss = loss.rolling(window=window).mean()
-    rs = avg_gain / avg_loss
-    rsi = 100 - (100 / (1 + rs))
-    return rsi
-
-def calculate_macd(data, fast=12, slow=26, signal=9):
-    fast_ema = data['close'].ewm(span=fast, adjust=False).mean()
-    slow_ema = data['close'].ewm(span=slow, adjust=False).mean()
-    macd = fast_ema - slow_ema
-    signal_line = macd.ewm(span=signal, adjust=False).mean()
-    return macd, signal_line
-
-def calculate_bollinger_bands(data, window=20, num_std=2):
-    sma = data['close'].rolling(window=window).mean()
-    std = data['close'].rolling(window=window).std()
-    upper_band = sma + (std * num_std)
-    lower_band = sma - (std * num_std)
-    return upper_band, lower_band
-
-def calculate_atr(data, window=14):
-    high_low = data['high'] - data['low']
-    high_close = (data['high'] - data['close'].shift()).abs()
-    low_close = (data['low'] - data['close'].shift()).abs()
-    tr = high_low.combine(high_close, max).combine(low_close, max)
-    atr = tr.rolling(window=window).mean()
-    return atr
-    
     def initialize_exchange(self):
         try:
             self.exchange = ccxt.bybit({
@@ -77,8 +40,23 @@ def calculate_atr(data, window=14):
             logging.error("Error fetching OHLCV data: %s", e)
             raise e
 
+    def calculate_sma(series, window):
+        return series.rolling(window=window).mean()
 
-    
+    def calculate_rsi(series, period=14):
+        return ta.rsi(series, length=period)
+
+    def calculate_macd(series, fast=12, slow=26, signal=9):
+        macd = ta.macd(series, fast=fast, slow=slow, signal=signal)
+        return macd['MACD_12_26_9'], macd['MACDs_12_26_9']
+
+    def calculate_bollinger_bands(series, length=20, std=2):
+        bbands = ta.bbands(series, length=length, std=std)
+        return bbands['BBU_20_2.0'], bbands['BBM_20_2.0'], bbands['BBL_20_2.0']
+
+    def calculate_atr(high, low, close, length=14):
+        return ta.atr(high, low, close, length=length)
+
     def calculate_indicators(self, df, sma_short=20, sma_long=50, sma_longest=200, ema_short=9, ema_mid=12, ema_long=26, rsi_period=14, macd_fast=12, macd_slow=26, macd_signal=9):
         try:
             # Calculate SMAs
@@ -92,21 +70,16 @@ def calculate_atr(data, window=14):
             df['EMA_26'] = ta.ema(df['close'], length=ema_long)
         
             # Calculate RSI
-            df['RSI'] = ta.rsi(df['close'], length=rsi_period)
+            df['RSI'] = self.calculate_rsi(df['close'], period=rsi_period)
         
             # Calculate MACD
-            macd = ta.macd(df['close'], fast=macd_fast, slow=macd_slow, signal=macd_signal)
-            df['MACD'] = macd['MACD_12_26_9']
-            df['MACD_signal'] = macd['MACDs_12_26_9']
+            df['MACD'], df['MACD_signal'] = self.calculate_macd(df['close'], fast=macd_fast, slow=macd_slow, signal=macd_signal)
         
             # Calculate Bollinger Bands
-            bbands = ta.bbands(df['close'], length=20, std=2)
-            df['BB_upper'] = bbands['BBU_20_2.0']
-            df['BB_middle'] = bbands['BBM_20_2.0']
-            df['BB_lower'] = bbands['BBL_20_2.0']
+            df['BB_upper'], df['BB_middle'], df['BB_lower'] = self.calculate_bollinger_bands(df['close'], length=20, std=2)
         
             # Calculate ATR (Average True Range)
-            df['ATR'] = ta.atr(df['high'], df['low'], df['close'], length=14)
+            df['ATR'] = self.calculate_atr(df['high'], df['low'], df['close'], length=14)
 
             logging.info("Calculated SMA, EMA, RSI, MACD, Bollinger Bands, and ATR indicators")
             return df
@@ -156,29 +129,13 @@ def calculate_atr(data, window=14):
             logging.error("An error occurred during trade execution: %s", e)
             raise e
 
-def calculate_technical_indicators(df):
-    df['SMA_50'] = ta.sma(df['close'], length=50)
-    df['SMA_200'] = ta.sma(df['close'], length=200)
-    df['EMA_12'] = ta.ema(df['close'], length=12)
-    df['EMA_26'] = ta.ema(df['close'], length=26)
-    macd = ta.macd(df['close'], fast=12, slow=26, signal=9)
-    
-    # Ensure the MACD calculation is not None
-    if macd is not None:
-        df['MACD'] = macd['MACD_12_26_9']
-        df['MACD_signal'] = macd['MACDs_12_26_9']
-    else:
-        df['MACD'] = df['MACD_signal'] = pd.Series([None] * len(df))
-    
-    df['RSI'] = ta.rsi(df['close'], length=14)
-    logging.info("Calculated technical indicators")
-    return df
-
 def main():
     try:
         # Replace with your actual API key and secret
         API_KEY = 'LzvSGu2mYFi2L6VtBL'
         API_SECRET = 'KA3wvyIvMCJjGZEB0KVjH9WJSi30iwc9pIiG'
+        
+
 
         time_offset = synchronize_system_time()
         logging.info("System time synchronized with offset: %d ms", time_offset)
@@ -186,11 +143,11 @@ def main():
         bot = TradingBot(API_KEY, API_SECRET)
         bot.initialize_exchange()
         
-        df = bot.fetch_ohlcv('BTC/USDT', time_offset=time_offset)
+        df = bot.fetch_ohlcv('BTCUSDT', time_offset=time_offset)
         df = bot.calculate_indicators(df)
         df = bot.trading_strategy(df)
         
-        df.apply(lambda row: bot.execute_trade('BTC/USDT', row['signal']), axis=1)
+        df.apply(lambda row: bot.execute_trade('BTCUSDT', row['signal']), axis=1)
         
         print(df.tail())
         

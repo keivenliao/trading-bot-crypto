@@ -110,7 +110,7 @@ def main():
     print(f"Time offset: {time_offset} seconds")
     
     # Fetch data
-    symbol = 'BTC/USDT'
+    symbol = 'BTCUSDT'
     timeframe = '1h'
     limit = 100
     df = tradingbot.fetch_data(symbol, timeframe, limit)

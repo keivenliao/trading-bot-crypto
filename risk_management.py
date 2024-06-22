@@ -240,7 +240,7 @@ def main():
         synchronize_system_time()
         exchange = initialize_exchange(api_key, api_secret)
         
-        symbol = 'BTC/USDT'
+        symbol = 'BTCUSDT'
         data = fetch_historical_data(exchange, symbol)
         data = calculate_technical_indicators(data)
         data = detect_patterns(data)

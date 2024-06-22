@@ -159,9 +159,9 @@ def execute_trading_decision(signal):
     exchange = ccxt.bybit({'apiKey': api_key, 'secret': api_secret})
 
     if signal == 'buy':
-        place_order(exchange, 'BTC/USDT', 'market', 'buy', 0.01)
+        place_order(exchange, 'BTCUSDT', 'market', 'buy', 0.01)
     elif signal == 'sell':
-        place_order(exchange, 'BTC/USDT', 'market', 'sell', 0.01)
+        place_order(exchange, 'BTCUSDT', 'market', 'sell', 0.01)
 
 def execute_trading_strategy(exchange: ccxt.Exchange, df: pd.DataFrame, symbol: str, amount: float, risk_percent: float):
     """
