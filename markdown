@@ -3,11 +3,14 @@ tradingbot/
 ├── API.env
 ├── APIs.py
 ├── backtesting.py
+├── config.py
+├── database.py
 ├── example_usage.py
 ├── exchanges.py
 ├── fetch_data.py
 ├── main.py
 ├── markdown/
+│   └── (empty directory)
 ├── monitoring.py
 ├── Placing Orders.py
 ├── portfolio_management.py
@@ -21,4 +24,4 @@ tradingbot/
 ├── test_bybit_api.py
 ├── test_trading_bot.py
 ├── trading_strategy.py
-├── tradingbot.py
+└── tradingbot.py
