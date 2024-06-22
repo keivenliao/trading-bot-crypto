@@ -5,7 +5,7 @@ import pandas as pd
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
-load_dotenv(dotenv_path=r'C:\Users\amrita\Desktop\improvised-code-of-the-pdf-GPT-main\API.env')
+load_dotenv(dotenv_path=r'F:\trading\improvised-code-of-the-pdf-GPT-main\API.env')
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -106,8 +106,15 @@ def load_api_credentials(index):
     """
     api_key = os.getenv(f'BYBIT_API_KEY_{index}')
     api_secret = os.getenv(f'BYBIT_API_SECRET_{index}')
-    logging.info(f"Loaded API credentials for set {index}: API_KEY={api_key[:4]}****, API_SECRET={api_secret[:4]}****")
+    
+    if api_key is not None and api_secret is not None:
+        logging.info(f"Loaded API credentials for set {index}: API_KEY={api_key[:4]}****, API_SECRET={api_secret[:4]}****")
+    else:
+        logging.warning(f"API credentials for set {index} are missing or incomplete.")
+    
     return api_key, api_secret
+
+
 
 def initialize_multiple_exchanges():
     """
@@ -125,6 +132,7 @@ def initialize_multiple_exchanges():
             logging.error(error_message)
             send_notification(error_message)
     return exchanges
+
 
 if __name__ == "__main__":
     exchanges = initialize_multiple_exchanges()

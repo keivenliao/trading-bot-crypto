@@ -1,3 +1,5 @@
+from curses import window
+from datetime import date
 import time
 import ccxt
 import pandas as pd
@@ -13,6 +15,41 @@ class TradingBot:
         self.api_secret = api_secret
         self.exchange = None
 
+    def calculate_sma(data, window):
+        return data['close'].rolling(window=window).mean()
+
+def calculate_rsi(data, window=14):
+    delta = data['close'].diff()
+    gain = (delta.where(delta > 0, 0)).fillna(0)
+    loss = (-delta.where(delta < 0, 0)).fillna(0)
+    avg_gain = gain.rolling(window=window).mean()
+    avg_loss = loss.rolling(window=window).mean()
+    rs = avg_gain / avg_loss
+    rsi = 100 - (100 / (1 + rs))
+    return rsi
+
+def calculate_macd(data, fast=12, slow=26, signal=9):
+    fast_ema = data['close'].ewm(span=fast, adjust=False).mean()
+    slow_ema = data['close'].ewm(span=slow, adjust=False).mean()
+    macd = fast_ema - slow_ema
+    signal_line = macd.ewm(span=signal, adjust=False).mean()
+    return macd, signal_line
+
+def calculate_bollinger_bands(data, window=20, num_std=2):
+    sma = data['close'].rolling(window=window).mean()
+    std = data['close'].rolling(window=window).std()
+    upper_band = sma + (std * num_std)
+    lower_band = sma - (std * num_std)
+    return upper_band, lower_band
+
+def calculate_atr(data, window=14):
+    high_low = data['high'] - data['low']
+    high_close = (data['high'] - data['close'].shift()).abs()
+    low_close = (data['low'] - data['close'].shift()).abs()
+    tr = high_low.combine(high_close, max).combine(low_close, max)
+    atr = tr.rolling(window=window).mean()
+    return atr
+    
     def initialize_exchange(self):
         try:
             self.exchange = ccxt.bybit({

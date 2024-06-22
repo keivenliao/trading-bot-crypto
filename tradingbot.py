@@ -1,13 +1,15 @@
-from ast import Param
-import logging
 import time
-import ntplib
+import logging
 import pandas as pd
-import numpy as np
+import ntplib
 import ccxt
 from APIs import create_exchange_instance, load_api_credentials
 from fetch_data import fetch_ohlcv
 from risk_management import calculate_stop_loss, calculate_take_profit, calculate_position_size
+from database import create_db_connection, store_data_to_db, fetch_historical_data
+from sentiment_analysis import fetch_real_time_sentiment
+from technical_indicators import calculate_sma, calculate_rsi, 
+from config import API_KEY, API_SECRET, DB_FILE, TRAILING_STOP_PERCENT, RISK_REWARD_RATIO
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -36,12 +38,16 @@ class TradingBot:
         logging.error(f"Max retries ({self.max_retries}) reached. Unable to synchronize time with {self.ntp_server}.")
         return 0  # Return 0 offset if synchronization fails
 
-    def initialize_exchange(self):
+    def initialize_exchange(self):  # Correct indentation for this method
         try:
-            self.exchange = create_exchange_instance(self.api_key, self.api_secret)
-            logging.info("Initialized exchange")
+            self.exchange = ccxt.bybit({
+                'apiKey': self.api_key,
+                'secret': self.api_secret,
+                'enableRateLimit': True,
+            })
+            logging.info("Initialized Bybit exchange")
         except Exception as e:
-            logging.error(f"Failed to initialize exchange: {e}")
+            logging.error("Failed to initialize exchange: %s", e)
             raise e
 
     def fetch_data(self, symbol, timeframe='1h', limit=100):
@@ -55,48 +61,16 @@ class TradingBot:
             logging.error("Error fetching OHLCV data: %s", e)
             raise e
 
-    def calculate_sma(self, series, window):
-        return series.rolling(window=window, min_periods=1).mean()
-
-    def calculate_ema(self, series, span):
-        return series.ewm(span=span, adjust=False).mean()
-
-    def calculate_macd(self, series, fast_period=12, slow_period=26, signal_period=9):
-        exp1 = series.ewm(span=fast_period, adjust=False).mean()
-        exp2 = series.ewm(span=slow_period, adjust=False).mean()
-        macd_line = exp1 - exp2
-        signal_line = macd_line.ewm(span=signal_period, adjust=False).mean()
-        return macd_line, signal_line
-
-    def calculate_rsi(self, series, period=14):
-        delta = series.diff()
-        gain = (delta.where(delta > 0, 0)).fillna(0)
-        loss = (-delta.where(delta < 0, 0)).fillna(0)
-        avg_gain = gain.rolling(window=period, min_periods=1).mean()
-        avg_loss = loss.rolling(window=period, min_periods=1).mean()
-        rs = avg_gain / avg_loss.replace(to_replace=0, method='ffill').replace(to_replace=0, method='bfill')
-        rsi = 100 - (100 / (1 + rs))
-        return rsi
-
-    def place_order(self, side, price, symbol, amount):
-        try:
-            order = self.exchange.create_order(symbol, 'market', side, amount)
-            logging.info(f"Placed {side} order for {amount} {symbol} at {price}")
-            return order
-        except ccxt.NetworkError as e:
-            logging.error(f"Failed to place order: {e}")
-            raise
-
     def calculate_indicators(self, df):
         try:
-            df['SMA_50'] = self.calculate_sma(df['close'], window=50)
-            df['SMA_200'] = self.calculate_sma(df['close'], window=200)
+            df['SMA_50'] = calculate_sma(df['close'], window=50)
+            df['SMA_200'] = calculate_sma(df['close'], window=200)
             df['EMA_12'] = self.calculate_ema(df['close'], span=12)
             df['EMA_26'] = self.calculate_ema(df['close'], span=26)
             macd_line, signal_line = self.calculate_macd(df['close'])
             df['MACD'] = macd_line
             df['MACD_signal'] = signal_line
-            df['RSI'] = self.calculate_rsi(df['close'])
+            df['RSI'] = calculate_rsi(df['close'])
             logging.info("Calculated technical indicators")
             return df
         except Exception as e:
@@ -169,5 +143,3 @@ class TradingBot:
 
 if __name__ == "__main__":
     TradingBot.main()
-
-

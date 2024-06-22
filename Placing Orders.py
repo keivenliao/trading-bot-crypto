@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Load environment variables from .env file
-load_dotenv(dotenv_path='C:/Users/amrita/Desktop/improvised-code-of-the-pdf-GPT-main/API.env')
+load_dotenv(dotenv_path='F:\trading\improvised-code-of-the-pdf-GPT-main/API.env')
 
 def initialize_exchange(api_key: str, api_secret: str) -> ccxt.Exchange:
     """

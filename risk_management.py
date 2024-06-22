@@ -149,6 +149,17 @@ def calculate_take_profit(entry_price, risk_reward_ratio, stop_loss):
     take_profit = entry_price + take_profit_distance if entry_price > stop_loss else entry_price - take_profit_distance
     return take_profit
 
+def apply_trailing_stop_loss(entry_price, current_price, trailing_percent):
+    trailing_stop = entry_price * (1 - trailing_percent)
+    if current_price > trailing_stop:
+        trailing_stop = current_price * (1 - trailing_percent)
+    return trailing_stop
+
+def calculate_risk_reward(entry_price, stop_loss_price, take_profit_price):
+    risk = abs(entry_price - stop_loss_price)
+    reward = abs(take_profit_price - entry_price)
+    risk_reward_ratio = reward / risk
+    return risk_reward_ratio
 
 
 
