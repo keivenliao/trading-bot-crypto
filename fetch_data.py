@@ -1,5 +1,4 @@
 from multiprocessing import Value
-
 import numpy as np
 from textblob import TextBlob
 import tweepy
@@ -204,9 +203,6 @@ def fetch_historical_data(exchange, symbol, timeframe, limit=100, params=None):
         print(f"An error occurred: {e}")
         return []
 
-
-
-
 def fetch_real_time_data(exchange: ccxt.Exchange, symbol: str, timeframe: str = '1m', limit: int = 100):
     """
     Fetch real-time OHLCV data for a symbol from the exchange.
@@ -242,13 +238,16 @@ def fetch_real_time_data(exchange: ccxt.Exchange, symbol: str, timeframe: str = 
         logging.error("An unexpected error occurred: %s", error)
         # Handle any other unexpected errors
 
-def fetch_data(exchange, symbol, timeframe, limit=100):
-    ohlcv = exchange.fetch_ohlcv(symbol, timeframe, limit=limit)
-    df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-    df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
-    logging.info(f"Fetched OHLCV data for {symbol}")
-    return df
-
+def fetch_data(self, symbol, timeframe='1h', limit=100):
+    try:
+        ohlcv = self.exchange.fetch_ohlcv(symbol, timeframe, limit=limit)
+        df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+        df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+        logging.info(f"Fetched real-time OHLCV data for {symbol}")
+        return df
+    except ccxt.BaseError as e:
+        logging.error("Error fetching real-time OHLCV data: %s", e)
+        raise e
 
 def main():
     try:

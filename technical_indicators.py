@@ -40,20 +40,25 @@ class TradingBot:
             logging.error("Error fetching OHLCV data: %s", e)
             raise e
 
+    @staticmethod
     def calculate_sma(series, window):
         return series.rolling(window=window).mean()
 
+    @staticmethod
     def calculate_rsi(series, period=14):
         return ta.rsi(series, length=period)
 
+    @staticmethod
     def calculate_macd(series, fast=12, slow=26, signal=9):
         macd = ta.macd(series, fast=fast, slow=slow, signal=signal)
         return macd['MACD_12_26_9'], macd['MACDs_12_26_9']
 
+    @staticmethod
     def calculate_bollinger_bands(series, length=20, std=2):
         bbands = ta.bbands(series, length=length, std=std)
         return bbands['BBU_20_2.0'], bbands['BBM_20_2.0'], bbands['BBL_20_2.0']
 
+    @staticmethod
     def calculate_atr(high, low, close, length=14):
         return ta.atr(high, low, close, length=length)
 
@@ -134,8 +139,6 @@ def main():
         # Replace with your actual API key and secret
         API_KEY = 'LzvSGu2mYFi2L6VtBL'
         API_SECRET = 'KA3wvyIvMCJjGZEB0KVjH9WJSi30iwc9pIiG'
-        
-
 
         time_offset = synchronize_system_time()
         logging.info("System time synchronized with offset: %d ms", time_offset)

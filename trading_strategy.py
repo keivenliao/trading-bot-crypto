@@ -1,8 +1,13 @@
+from email.policy import HTTP
 import subprocess
 import sys
 
-# Ensure the required library is installed
+from sentiment_analysis import fetch_real_time_sentiment
+
+# Ensure the required libraries are installed
 subprocess.check_call([sys.executable, "-m", "pip", "install", "scikit-learn"])
+subprocess.check_call([sys.executable, "-m", "pip", "install", "stable-baselines3==1.6.0"])
+subprocess.check_call([sys.executable, "-m", "pip", "install", "gym==0.26.0"])
 
 import ccxt
 import pandas as pd
@@ -14,13 +19,15 @@ import ntplib
 import numpy as np
 import gym
 from stable_baselines3 import PPO
+from stable_baselines3.common.evaluation import evaluate_policy
+from stable_baselines3.common.monitor import Monitor
+from stable_baselines3.common.env_util import make_vec_env
+from stable_baselines3.common.callbacks import CheckpointCallback
 from sklearn.preprocessing import MinMaxScaler
 from keras.models import Sequential
 from keras.layers import LSTM, Dense
 from datetime import datetime
-import ta
 from fetch_data import main
-
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -30,28 +37,193 @@ API_KEY = os.getenv('BYBIT_API_KEY')
 API_SECRET = os.getenv('BYBIT_API_SECRET')
 
 class TradingEnv(gym.Env):
-    def __init__(self, df):
+    def __init__(self, df, initial_balance=10000, leverage=1):
         super(TradingEnv, self).__init__()
         self.df = df
         self.current_step = 0
+        self.done = False
+        self.initial_balance = initial_balance
+        self.balance = initial_balance
+        self.leverage = leverage
+        self.position = None  # None, 'long', 'short'
+        self.position_size = 0
+        self.entry_price = 0
         self.action_space = gym.spaces.Discrete(3)  # 0: Hold, 1: Buy, 2: Sell
-        self.observation_space = gym.spaces.Box(low=0, high=1, shape=(len(df.columns),))
+        self.observation_space = gym.spaces.Box(low=0, high=1, shape=(len(df.columns),), dtype=np.float32)
 
     def reset(self):
         self.current_step = 0
+        self.done = False
+        self.balance = self.initial_balance
+        self.position = None
+        self.position_size = 0
+        self.entry_price = 0
         return self.df.iloc[self.current_step].values
 
     def step(self, action):
         self.current_step += 1
-        reward = self.df.iloc[self.current_step]['profit'] if action == 1 else -self.df.iloc[self.current_step]['loss']
-        done = self.current_step == len(self.df) - 1
-        obs = self.df.iloc[self.current_step].values
-        return obs, reward, done, {}
+
+        if self.current_step >= len(self.df) - 1:
+            self.done = True
+
+        reward = self._take_action(action)
+        obs = self._next_observation()
+
+        return obs, reward, self.done, {}
+
+    def _take_action(self, action):
+        current_price = self.df.iloc[self.current_step]['Close']
+        reward = 0
+
+        if action == 1:  # Buy/Long
+            if self.position is None:
+                self.position = 'long'
+                self.position_size = (self.balance * self.leverage) / current_price
+                self.entry_price = current_price
+
+        elif action == 2:  # Sell/Short
+            if self.position is None:
+                self.position = 'short'
+                self.position_size = (self.balance * self.leverage) / current_price
+                self.entry_price = current_price
+
+        if self.position == 'long':
+            reward = (current_price - self.entry_price) * self.position_size
+        elif self.position == 'short':
+            reward = (self.entry_price - current_price) * self.position_size
+
+        self.balance += reward
+
+        if self.position and action == 0:  # Hold position
+            reward = 0
+
+        if action == 1 and self.position == 'short':
+            self.balance += self.position_size * (self.entry_price - current_price)
+            self.position = None
+            self.position_size = 0
+            self.entry_price = 0
+
+        if action == 2 and self.position == 'long':
+            self.balance += self.position_size * (current_price - self.entry_price)
+            self.position = None
+            self.position_size = 0
+            self.entry_price = 0
+
+        return reward
+
+    def render(self, mode='human', close=False):
+        print(f'Step: {self.current_step}')
+        print(f'Balance: {self.balance}')
+        print(f'Position: {self.position}')
+        print(f'Position Size: {self.position_size}')
+        print(f'Entry Price: {self.entry_price}')
+
+    def _next_observation(self):
+        return self.df.iloc[self.current_step].values
+
+# Example usage
+if __name__ == "__main__":
+    # Sample DataFrame with stock data
+    data = {
+        'Open': [1.0, 1.2, 1.1, 1.3, 1.4],
+        'High': [1.1, 1.3, 1.2, 1.4, 1.5],
+        'Low': [0.9, 1.1, 1.0, 1.2, 1.3],
+        'Close': [1.0, 1.2, 1.1, 1.3, 1.4],
+    }
+    df = pd.DataFrame(data)
+
+    env = TradingEnv(df, leverage=10)
+    obs = env.reset()
+    done = False
+
+    while not done:
+        action = env.action_space.sample()  # Random action
+        obs, reward, done, _ = env.step(action)
+        env.render()
+
+# Example usage
+if __name__ == "__main__":
+    # Sample DataFrame with stock data
+    data = {
+        'Open': [1.0, 1.2, 1.1, 1.3, 1.4],
+        'High': [1.1, 1.3, 1.2, 1.4, 1.5],
+        'Low': [0.9, 1.1, 1.0, 1.2, 1.3],
+        'Close': [1.0, 1.2, 1.1, 1.3, 1.4],
+    }
+    df = pd.DataFrame(data)
+
+    env = TradingEnv(df)
+    obs = env.reset()
+    done = False
+
+    while not done:
+        action = env.action_space.sample()  # Random action
+        obs, reward, done, _ = env.step(action)
+        env.render()
+
+# Prepare the data
+data = {
+    'feature1': np.random.rand(1000),
+    'feature2': np.random.rand(1000),
+    'feature3': np.random.rand(1000)
+}
+df = pd.DataFrame(data)
+
+# Create and wrap the environment
+def create_env():
+    return TradingEnv(df)
+
+vec_env = make_vec_env(create_env, n_envs=4)
+
+# Create the PPO model
+model = PPO('MlpPolicy', vec_env, verbose=1)
+
+# Define a callback for saving the model at certain intervals
+checkpoint_callback = CheckpointCallback(save_freq=1000, save_path='./models/', name_prefix='ppo_trading_model')
+
+# Train the model
+model.learn(total_timesteps=10000, callback=checkpoint_callback)
+
+# Save the trained model
+model.save("ppo_trading_model")
+
+# Load the trained model (optional)
+model = PPO.load("ppo_trading_model")
+
+# Evaluate the model
+mean_reward, std_reward = evaluate_policy(model, vec_env, n_eval_episodes=10)
+print(f"Mean reward: {mean_reward} +/- {std_reward}")
 
 def train_rl_model(df):
     env = TradingEnv(df)
-    model = PPO('MlpPolicy', env, verbose=1)
-    model.learn(total_timesteps=10000)
+    env = Monitor(env)
+    model = PPO(
+        'MlpPolicy',
+        vec_env,
+        n_steps=2048,  # Increased steps for better learning
+        batch_size=64,
+        gae_lambda=0.95,
+        gamma=0.99,
+        n_epochs=10,
+        ent_coef=0.01,
+        learning_rate=2.5e-4,
+        clip_range=0.2,
+        verbose=1
+    )
+
+    # Set up a checkpoint callback to save the model at intervals
+    checkpoint_callback = CheckpointCallback(save_freq=1000, save_path='./models/', name_prefix='ppo_trading_model')
+
+    # Train the model
+    model.learn(total_timesteps=100000, callback=checkpoint_callback)
+
+    # Evaluate the model
+    mean_reward, std_reward = evaluate_policy(model, env, n_eval_episodes=10)
+    print(f"Mean reward: {mean_reward} +/- {std_reward}")
+
+    # Save the final model
+    model.save("ppo_trading_model_final")
+
     return model
 
 def rl_trading_decision(model, obs):
@@ -71,8 +243,6 @@ def synchronize_system_time():
         logging.error("Time synchronization failed: %s", e)
         return 0  # Return zero offset in case of failure
 
-# tradingbot/trading_strategy.py
-
 def detect_signals(df):
     latest = df.iloc[-1]
     previous = df.iloc[-2]
@@ -83,7 +253,6 @@ def detect_signals(df):
     elif (previous['SMA_20'] > previous['SMA_50'] and latest['SMA_20'] < latest['SMA_50']) and latest['RSI'] > 30:
         return 'sell'
     return 'hold'
-
 
 def generate_signals(df):
     """
@@ -114,7 +283,6 @@ def generate_signals(df):
 
     logging.info("Generated buy and sell signals")
     return df
-
 
 def initialize_exchange(api_key, api_secret):
     """
@@ -222,20 +390,40 @@ def trading_strategy(df):
     logging.info("Defined trading strategy")
     return df
 
-def execute_trade(exchange, symbol, signal, amount=1):
-    """
-    Execute trades based on signals.
-    """
-    try:
-        if signal == 'buy':
-            logging.info("Executing Buy Order")
-            exchange.create_market_buy_order(symbol, amount)
-        elif signal == 'sell':
-            logging.info("Executing Sell Order")
-            exchange.create_market_sell_order(symbol, amount)
-    except ccxt.BaseError as e:
-        logging.error(f"Error executing {signal} order: {e}")
-        raise e
+def execute_trade():
+    # Bybit API initialization
+    api_key = 'YOUR_BYBIT_API_KEY'
+    api_secret = 'YOUR_BYBIT_API_SECRET'
+    session = HTTP("https://api.bybit.com", api_key=api_key, api_secret=api_secret)
+
+    # Fetch sentiment data
+    sentiment_score = fetch_real_time_sentiment()
+
+    if sentiment_score is not None:
+        if sentiment_score > 0.5:
+            # Example logic to place a buy order
+            order = session.place_active_order(
+                symbol="BTCUSD",
+                side="Buy",
+                order_type="Market",
+                qty=0.002,  # Adjust the quantity as needed
+                time_in_force="GoodTillCancel"
+            )
+            logging.info(f"Placed buy order: {order}")
+        elif sentiment_score < -0.5:
+            # Example logic to place a sell order
+            order = session.place_active_order(
+                symbol="BTCUSD",
+                side="Sell",
+                order_type="Market",
+                qty=0.002,  # Adjust the quantity as needed
+                time_in_force="GoodTillCancel"
+            )
+            logging.info(f"Placed sell order: {order}")
+        else:
+            logging.info("Sentiment score neutral, no action taken.")
+    else:
+        logging.error("Failed to fetch sentiment data.")
     
 if __name__ == "__main__":
     main()

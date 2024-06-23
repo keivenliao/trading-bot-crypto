@@ -1,3 +1,4 @@
+from cmath import e
 import logging
 import os
 import ccxt
@@ -8,8 +9,11 @@ from datetime import datetime
 from sympy import Order
 import ta
 import pandas as pd
+from database import fetch_historical_data
+import exchanges
 from fetch_data import get_historical_data, get_tweets, analyze_sentiment
-from trading_strategy import build_and_train_model, predict_prices, train_rl_model, rl_trading_decision
+from risk_management import adjust_stop_loss_take_profit, calculate_stop_loss, calculate_take_profit, calculate_technical_indicators, detect_patterns, place_order_with_risk_management
+from trading_strategy import build_and_train_model, predict_prices, train_rl_model, rl_trading_decision, execute_trade
 from portfolio_management import calculate_returns, optimize_portfolio
 from tradingbot import execute_trading_decision
 import tradingbot
@@ -101,6 +105,9 @@ def perform_backtesting(exchange):
     except Exception as e:
         logging.error("Error during backtesting: %s", e)
 
+import logging
+import tradingbot  # Assuming tradingbot is imported from the appropriate module
+
 def main():
 
     tradingbot.initialize_exchange()
@@ -109,28 +116,37 @@ def main():
     time_offset = tradingbot.synchronize_time()
     print(f"Time offset: {time_offset} seconds")
     
-    # Fetch data
-    symbol = 'BTCUSDT'
-    timeframe = '1h'
-    limit = 100
-    df = tradingbot.fetch_data(symbol, timeframe, limit)
-    print(f"Fetched data:\n{df.head()}")
+    try:  # Adding try block here
+
+        # Fetch data
+        symbol = 'BTCUSDT'
+        timeframe = '1h'
+        limit = 100
+        df = tradingbot.fetch_data(symbol, timeframe, limit)
+        print(f"Fetched data:\n{df.head()}")
+        
+        # Calculate indicators
+        df_with_indicators = tradingbot.calculate_indicators(df)
+        print(f"Data with indicators:\n{df_with_indicators.head()}")
+        
+        # Example usage of historical data and technical indicators
+        symbol = 'BTCUSDT'
+        data = fetch_historical_data(exchanges, symbol)
+        data = calculate_technical_indicators(data)
+        data = detect_patterns(data)
+        
+        # Example: Determine current market conditions
+        if data.iloc[-1]['SMA_50'] > data.iloc[-1]['SMA_200']:
+            stop_loss, take_profit = adjust_stop_loss_take_profit(data, data.iloc[-1]['close'])
+        elif data.iloc[-1]['SMA_50'] < data.iloc[-1]['SMA_200']:
+            stop_loss, take_profit = adjust_stop_loss_take_profit(data, data.iloc[-1]['close'])
+        else:
+            stop_loss = calculate_stop_loss(data.iloc[-1]['close'], 1.0, data)
+            take_profit = calculate_take_profit(data.iloc[-1]['close'], 1.0, stop_loss)
+        
+        # Example: Place order with dynamic SL and TP
+        #place_order_with_risk_management(exchanges, symbol, 'buy', 0.001, stop_loss, take_profit)
     
-    # Calculate indicators
-    df_with_indicators = tradingbot.calculate_indicators(df)
-    print(f"Data with indicators:\n{df_with_indicators.head()}")
-    
-    # Example: Place an order
-    side = 'buy'
-    price = 40000  # Example price
-    amount = 0.001  # Example amount
-    order = tradingbot.place_order(side, price, symbol, amount)
-    print(f"Placed order:\n{order}")
-    try:
-        setup_logging()
-        api_key, api_secret = load_api_credentials()
-        exchange = initialize_exchange(api_key, api_secret)
-        perform_backtesting(exchange)
     except ccxt.AuthenticationError as e:
         logging.error("Authentication error: %s. Please check your API key and secret.", e)
     except ccxt.NetworkError as e:
@@ -180,4 +196,8 @@ else:
 execute_trading_decision(decision)
 
 if __name__ == "__main__":
-    main()
+    # Initialize logging
+    logging.basicConfig(level=logging.INFO)
+    
+    # Execute trading strategy
+    execute_trade()

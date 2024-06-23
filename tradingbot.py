@@ -1,5 +1,5 @@
 from ctypes import c_short
-from datetime import date
+from datetime import datetime
 import time
 import logging
 import pandas as pd
@@ -64,7 +64,7 @@ class TradingBot:
     # Fetch Data
     def fetch_data(self, symbol, timeframe='1h', limit=100):
         try:
-            ohlcv = fetch_ohlcv(self.exchange, symbol, timeframe=timeframe, limit=limit)
+            ohlcv = self.exchange.fetch_ohlcv(self.exchange, symbol, timeframe=timeframe, limit=limit)
             df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
             df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
             logging.info(f"Fetched OHLCV data for {symbol}")

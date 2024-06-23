@@ -5,7 +5,6 @@ import pandas as pd
 from tradingbot import TradingBot
 import ntplib
 
-
 class TestTradingFunctions(unittest.TestCase):
 
     def setUp(self):

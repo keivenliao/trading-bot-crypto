@@ -1,7 +1,8 @@
+from cmath import e
 import ccxt
 import logging
 import pandas as pd
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 import os
 import ntplib
 
@@ -134,20 +135,32 @@ def detect_double_top(data):
         raise e
     
     
-def calculate_position_size(capital, risk_per_trade, entry_price, stop_loss_price):
-    risk_amount = capital * (risk_per_trade / 100)
-    position_size = risk_amount / abs(entry_price - stop_loss_price)
-    return position_size
+def calculate_position_size(balance, risk_percentage, entry_price, stop_loss):
+    risk_amount = balance * (risk_percentage / 100)
+    position_size = risk_amount / abs(entry_price - stop_loss)
+    return min(position_size, balance / entry_price)  # Ensure position size does not exceed available balance
 
-def calculate_stop_loss(entry_price, risk_percentage, leverage):
-    stop_loss_distance = entry_price * (risk_percentage / 100) / leverage
-    stop_loss = entry_price - stop_loss_distance if entry_price > 0 else entry_price + stop_loss_distance
+def calculate_atr(data, period=14):
+    high_low_range = data['high'] - data['low']
+    high_close_range = abs(data['high'] - data['close'].shift())
+    low_close_range = abs(data['low'] - data['close'].shift())
+    ranges = pd.concat([high_low_range, high_close_range, low_close_range], axis=1)
+    true_range = ranges.max(axis=1)
+    atr = true_range.rolling(window=period).mean()
+    return atr
+
+#date here was suggessted by GPT ., but the code was as atr = calculate_atr()data 
+# Ensure calculate_atr calculates ATR based on your data frame (data) and possibly adjusts the period parameter based on market conditions. 
+def calculate_stop_loss(entry_price, atr_multiplier):
+    atr = calculate_atr(date)  # Implement calculate_atr function
+    stop_loss = entry_price - atr_multiplier * atr
     return stop_loss
 
 def calculate_take_profit(entry_price, risk_reward_ratio, stop_loss):
     take_profit_distance = abs(entry_price - stop_loss) * risk_reward_ratio
     take_profit = entry_price + take_profit_distance if entry_price > stop_loss else entry_price - take_profit_distance
     return take_profit
+
 
 def apply_trailing_stop_loss(entry_price, current_price, trailing_percent):
     trailing_stop = entry_price * (1 - trailing_percent)
@@ -161,34 +174,47 @@ def calculate_risk_reward(entry_price, stop_loss_price, take_profit_price):
     risk_reward_ratio = reward / risk
     return risk_reward_ratio
 
+def adjust_stop_loss_take_profit(data, entry_price):
+    # Example: Adjust based on SMA and RSI
+    if data.iloc[-1]['SMA_50'] > data.iloc[-1]['SMA_200']:
+        stop_loss = calculate_stop_loss(entry_price, 1.5, data)
+        take_profit = calculate_take_profit(entry_price, 2.0, stop_loss)
+    elif data.iloc[-1]['SMA_50'] < data.iloc[-1]['SMA_200']:
+        stop_loss = calculate_stop_loss(entry_price, 2.0, data)
+        take_profit = calculate_take_profit(entry_price, 1.5, stop_loss)
+    else:
+        stop_loss = calculate_stop_loss(entry_price, 1.0, data)  # Default or neutral strategy
+        take_profit = calculate_take_profit(entry_price, 1.0, stop_loss)  # Default or neutral strategy
+    
+    return stop_loss, take_profit
 
 
-def place_order_with_risk_management(exchange, symbol, side, amount, stop_loss, take_profit):
-    """
-    Place an order with stop-loss and take-profit.
-    """
+def place_order_with_risk_management(exchange, symbol, side, amount, stop_loss=None, take_profit=None):
     try:
         order = exchange.create_order(symbol, 'market', side, amount)
         logging.info(f"Market order placed: {order}")
         
         order_price = order.get('price')
         if order_price:
-            stop_loss_price = order_price * (1 - stop_loss) if side == 'buy' else order_price * (1 + stop_loss)
-            take_profit_price = order_price * (1 + take_profit) if side == 'buy' else order_price * (1 - take_profit)
+            if not stop_loss:
+                stop_loss = calculate_stop_loss(order_price, 1.5)  # Example: Adjust multiplier as per your strategy
+            if not take_profit:
+                take_profit = calculate_take_profit(order_price, 2.0, stop_loss)  # Example: Adjust risk-reward ratio
             
-            logging.info(f"Stop Loss: {stop_loss_price}, Take Profit: {take_profit_price}")
+            logging.info(f"Stop Loss: {stop_loss}, Take Profit: {take_profit}")
             
             if side == 'buy':
-                exchange.create_order(symbol, 'stop', 'sell', amount, stop_loss_price)
-                exchange.create_order(symbol, 'limit', 'sell', amount, take_profit_price)
+                exchange.create_order(symbol, 'stop', 'sell', amount, stop_loss)
+                exchange.create_order(symbol, 'limit', 'sell', amount, take_profit)
             else:
-                exchange.create_order(symbol, 'stop', 'buy', amount, stop_loss_price)
-                exchange.create_order(symbol, 'limit', 'buy', amount, take_profit_price)
+                exchange.create_order(symbol, 'stop', 'buy', amount, stop_loss)
+                exchange.create_order(symbol, 'limit', 'buy', amount, take_profit)
             
         else:
             logging.warning("Order price not available, cannot calculate stop-loss and take-profit.")
     except ccxt.BaseError as e:
         logging.error(f"An error occurred: {e}")
+
 
 def apply_position_sizing(df, risk_percentage):
     """
@@ -202,7 +228,7 @@ def apply_position_sizing(df, risk_percentage):
     - df: DataFrame with 'position_size' column added.
     """
     # Assuming capital is available in a global variable or passed through another mechanism
-    capital = 10000  # Example: Starting capital of $10,000
+    capital = 10  # Example: Starting capital of $10,000
     
     # Calculate position size based on risk percentage
     df['position_size'] = (capital * risk_percentage / 100) / df['close']
@@ -241,17 +267,34 @@ def main():
         exchange = initialize_exchange(api_key, api_secret)
         
         symbol = 'BTCUSDT'
+        
+    
         data = fetch_historical_data(exchange, symbol)
         data = calculate_technical_indicators(data)
         data = detect_patterns(data)
-
-        # Example of placing an order with stop-loss and take-profit
-        # Configure risk management parameters here
-        side = 'buy'
-        amount = 0.001
-        stop_loss = 0.01  # 1%
-        take_profit = 0.02  # 2%
         
+        # Example of market analysis (hypothetical)
+        if data.iloc[-1]['SMA_50'] > data.iloc[-1]['SMA_200']:
+            trend = 'bullish'  # Example: SMA 50 above SMA 200
+        else:
+            trend = 'bearish'  # Example: SMA 50 below SMA 200
+
+        
+        # Example of risk management parameters based on trend analysis
+        if trend == 'bullish':
+            side = 'buy'
+            amount = 0.001
+            stop_loss = calculate_stop_loss(data.iloc[-1]['close'], 1.5, 5)  # Example: Adjust based on your strategy
+            take_profit = calculate_take_profit(data.iloc[-1]['close'], 2.0, stop_loss)  # Example: Adjust based on your strategy
+        elif trend == 'bearish':
+            side = 'sell'
+            amount = 0.001
+            stop_loss = calculate_stop_loss(data.iloc[-1]['close'], 1.5, 5)  # Example: Adjust based on your strategy
+            take_profit = calculate_take_profit(data.iloc[-1]['close'], 2.0, stop_loss)  # Example: Adjust based on your strategy
+        else:
+            logging.info("No clear trend identified, skipping order placement")
+            return
+
         # Uncomment the line below to place a real order
         #place_order_with_risk_management(exchange, symbol, side, amount, stop_loss, take_profit)
 
@@ -261,6 +304,8 @@ def main():
         logging.error("An error occurred: %s", e)
     except ValueError as e:
         logging.error("Value error occurred: %s", e)
+        
+        
 
 if __name__ == "__main__":
     main()

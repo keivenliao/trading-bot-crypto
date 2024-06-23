@@ -1,4 +1,5 @@
-tradingbot/
+project/
+│
 ├── __init__.py
 ├── API.env
 ├── APIs.py
@@ -10,7 +11,6 @@ tradingbot/
 ├── fetch_data.py
 ├── main.py
 ├── markdown/
-│   └── (empty directory)
 ├── monitoring.py
 ├── Placing Orders.py
 ├── portfolio_management.py
@@ -18,10 +18,15 @@ tradingbot/
 ├── risk_management.py
 ├── run.py
 ├── sentiment_analysis.py
+├── sentiment_model.h5
 ├── synchronize_exchange_time.py
 ├── technical_indicators.py
 ├── tempCodeRunnerFile.py
 ├── test_bybit_api.py
+├── test_model.h5
+├── test_tokenizer.json
 ├── test_trading_bot.py
+├── tokenizer.json
 ├── trading_strategy.py
-└── tradingbot.py
+├── tradingbot.py
+└── utils.py
