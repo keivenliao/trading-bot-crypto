@@ -24,6 +24,7 @@ def calculate_returns(df):
 def optimize_portfolio(returns, cov_matrix, risk_free_rate=0.01):
     num_assets = len(returns)
     args = (returns, cov_matrix, risk_free_rate)
+    
 
     def portfolio_performance(weights, returns, cov_matrix, risk_free_rate):
         returns = np.dot(weights, returns)
@@ -46,7 +47,7 @@ def build_portfolio_model(input_dim):
 
 def optimize_portfolio(returns, cov_matrix):
     num_assets = len(returns)
-    model = build_portfolio_model(num_assets)
+    
 
     # Generate synthetic data for training
     X_train = np.random.rand(1000, num_assets)

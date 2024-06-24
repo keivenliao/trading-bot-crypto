@@ -4,8 +4,6 @@ import pandas as pd
 import pandas_ta as ta
 import logging
 import os
-
-import exchanges
 from fetch_data import fetch_ohlcv
 
 # Set up logging
@@ -42,6 +40,7 @@ def fetch_data(exchange, symbol='BTCUSDT', timeframe='1h', limit=100):
             logging.error(f"Error fetching data (Attempt {attempts}/{max_attempts}): {error}")
             time.sleep(2 ** attempts)
     raise Exception("Failed to fetch data after multiple attempts")
+
 
 def calculate_indicators(df, sma_short=20, sma_long=50, rsi_period=14, macd_fast=12, macd_slow=26, macd_signal=9):
     try:
@@ -87,7 +86,7 @@ def detect_signals(df, sma_short=20, sma_long=50, rsi_overbought=70, rsi_oversol
 
         # Fill NaN values with previous values
         df.fillna(method='ffill', inplace=True)
-
+        
         # Debug prints for indicators
         print(f"Latest SMA_{sma_short}: {latest[f'SMA_{sma_short}']}, SMA_{sma_long}: {latest[f'SMA_{sma_long}']}, RSI_14: {latest['RSI_14']}")
         print(f"Previous SMA_{sma_short}: {previous[f'SMA_{sma_short}']}, SMA_{sma_long}: {previous[f'SMA_{sma_long}']}, RSI_14: {previous['RSI_14']}")
