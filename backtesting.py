@@ -4,7 +4,10 @@ import pandas as pd
 import pandas_ta as ta
 import logging
 import os
+
+import exchanges
 from fetch_data import fetch_ohlcv
+from database import create_db_connection, fetch_historical_data, close_db_connection
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -40,7 +43,6 @@ def fetch_data(exchange, symbol='BTCUSDT', timeframe='1h', limit=100):
             logging.error(f"Error fetching data (Attempt {attempts}/{max_attempts}): {error}")
             time.sleep(2 ** attempts)
     raise Exception("Failed to fetch data after multiple attempts")
-
 
 def calculate_indicators(df, sma_short=20, sma_long=50, rsi_period=14, macd_fast=12, macd_slow=26, macd_signal=9):
     try:
@@ -86,7 +88,7 @@ def detect_signals(df, sma_short=20, sma_long=50, rsi_overbought=70, rsi_oversol
 
         # Fill NaN values with previous values
         df.fillna(method='ffill', inplace=True)
-        
+
         # Debug prints for indicators
         print(f"Latest SMA_{sma_short}: {latest[f'SMA_{sma_short}']}, SMA_{sma_long}: {latest[f'SMA_{sma_long}']}, RSI_14: {latest['RSI_14']}")
         print(f"Previous SMA_{sma_short}: {previous[f'SMA_{sma_short}']}, SMA_{sma_long}: {previous[f'SMA_{sma_long}']}, RSI_14: {previous['RSI_14']}")
@@ -191,6 +193,16 @@ def backtest_strategy(df, initial_capital=1000, position_size=1, transaction_cos
         logging.error("Error during backtesting: %s", e)
         raise e
 
+DB_FILE = 'trading_bot.db'
+TABLE_NAME = 'historical_data'
+
+def get_data_for_backtesting():
+    conn = create_db_connection(DB_FILE)
+    if conn:
+        data = fetch_historical_data(conn, TABLE_NAME)
+        close_db_connection(conn)
+        return data
+
 def calculate_position_size(capital, risk_per_trade, entry_price, stop_loss_price):
     risk_amount = capital * (risk_per_trade / 100)
     position_size = risk_amount / abs(entry_price - stop_loss_price)
@@ -248,3 +260,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+    historical_data = get_data_for_backtesting()
+    print(historical_data.head())

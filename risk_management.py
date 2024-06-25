@@ -296,7 +296,7 @@ def main():
             return
 
         # Uncomment the line below to place a real order
-        #place_order_with_risk_management(exchange, symbol, side, amount, stop_loss, take_profit)
+        place_order_with_risk_management(exchange, symbol, side, amount, stop_loss, take_profit)
 
     except ccxt.NetworkError as e:
         logging.error("A network error occurred: %s", e)

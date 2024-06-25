@@ -90,15 +90,7 @@ def fetch_ohlcv(exchange: ccxt.Exchange, symbol: str, timeframe: str = '1h', lim
         df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
         logging.info("Fetched OHLCV data for %s", symbol)
         
-        if df.isnull().values.any():
-            raise ValueError("Fetched data contains null values")
-        
         return df
-    except (ccxt.NetworkError, ccxt.ExchangeError, ccxt.BaseError) as e:
-        logging.error("Error fetching OHLCV data: %s", e)
-        raise e
-        
-        
     except ccxt.NetworkError as net_error:
         logging.error("Network error while fetching OHLCV data: %s", net_error)
         raise net_error

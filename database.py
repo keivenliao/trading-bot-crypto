@@ -1,3 +1,4 @@
+from importlib.resources import as_file
 import sqlite3
 import pandas as pd
 import logging
@@ -14,6 +15,15 @@ def create_db_connection(db_file):
     except sqlite3.Error as e:
         logging.error(f"Error connecting to database: {e}")
         return None
+
+def create_table(conn, create_table_sql):
+    """Create a table from the create_table_sql statement."""
+    try:
+        c = conn.cursor()
+        c.execute(create_table_sql)
+        logging.info("Table created successfully.")
+    except sqlite3.Error as e:
+        logging.error(f"Error creating table: {e}")
 
 def store_data_to_db(conn, df, table_name):
     """Store a DataFrame into a database table."""
@@ -40,6 +50,24 @@ def close_db_connection(conn):
     if conn:
         conn.close()
         logging.info("Database connection closed.")
+        
+        
+def init_db(db_file):
+    """Initialize the database with the necessary tables."""
+    conn = create_db_connection(db_file)
+    if conn:
+        historical_data_table = """
+        CREATE TABLE IF NOT EXISTS historical_data (
+            Date TEXT,
+            Open REAL,
+            High REAL,
+            Low REAL,
+            Close REAL,
+            Volume INTEGER
+        );
+        """
+        create_table(conn, historical_data_table)
+        close_db_connection(conn)
 
 # Example usage
 if __name__ == "__main__":
@@ -64,6 +92,29 @@ if __name__ == "__main__":
         # Fetch data from the database
         historical_data = fetch_historical_data(conn, TABLE_NAME)
         print(historical_data)
+        
+        # Close the database connection
+        close_db_connection(conn)
+        
+        # Initialize the database
+        init_db(DB_FILE)
+        
+        def init_db(db_file):
+        #"""Initialize the database with the necessary tables."""
+            conn = create_db_connection(as_file)
+    
+    if conn:
+        historical_data_table = """
+        CREATE TABLE IF NOT EXISTS historical_data (
+            Date TEXT,
+            Open REAL,
+            High REAL,
+            Low REAL,
+            Close REAL,
+            Volume INTEGER
+        );
+        """
+        create_table(conn, historical_data_table)
         
         # Close the database connection
         close_db_connection(conn)

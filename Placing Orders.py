@@ -26,7 +26,7 @@ def initialize_exchange(api_key: str, api_secret: str) -> ccxt.Exchange:
         logging.error("Failed to initialize exchange: %s", e)
         raise
 
-def fetch_ohlcv(exchange: ccxt.Exchange, symbol: str, timeframe: str = '1h', limit: int = 100) -> pd.DataFrame:
+def fetch_ohlcv(exchange: ccxt.Exchange, symbol: str, timeframe: str = '1h', limit: int = 00) -> pd.DataFrame:
     """
     Fetch OHLCV data.
     """
@@ -115,15 +115,16 @@ def manage_leverage(exchange: ccxt.Exchange, symbol: str, amount: float, risk_pe
         max_leverage = exchange.markets[symbol]['limits']['leverage']['max'] if symbol in exchange.markets else 1
         
         # Calculate maximum leverage
-        calculated_leverage = min(max_loss / (amount * ticker['last']), max_leverage)
+        calculated_leverage = max(min(max_loss / (amount * ticker['last']), max_leverage), 1)
+
         
         # Set the leverage on the exchange if within bounds
         if 1 <= calculated_leverage <= max_leverage:
             exchange.set_leverage(calculated_leverage, symbol)
             logging.info("Dynamically set leverage to %.2f for %s based on risk management", calculated_leverage, symbol)
         else:
-            logging.warning("Calculated leverage %.2f is out of bounds for %s. Using default leverage of 1.", calculated_leverage, symbol)
-            exchange.set_leverage(50, symbol)  # Set to default leverage of 1
+            logging.warning("Calculated leverage %.2f is out of bounds for %s. Using default leverage of 50.", calculated_leverage, symbol)
+            exchange.set_leverage(50, symbol)  # Set to default leverage of 50
 
         return calculated_leverage
     except KeyError as ke:

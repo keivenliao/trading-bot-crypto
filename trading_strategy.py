@@ -24,6 +24,7 @@ from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.callbacks import CheckpointCallback
 from sklearn.preprocessing import MinMaxScaler
+from backtesting import get_data_for_backtesting
 from keras.models import Sequential
 from keras.layers import LSTM, Dense
 from datetime import datetime
@@ -243,6 +244,11 @@ def synchronize_system_time():
         logging.error("Time synchronization failed: %s", e)
         return 0  # Return zero offset in case of failure
 
+def your_trading_strategy():
+    # Fetch historical data for backtesting
+    historical_data = get_data_for_backtesting()
+    print(historical_data.head())
+
 def detect_signals(df):
     latest = df.iloc[-1]
     previous = df.iloc[-2]
@@ -253,6 +259,8 @@ def detect_signals(df):
     elif (previous['SMA_20'] > previous['SMA_50'] and latest['SMA_20'] < latest['SMA_50']) and latest['RSI'] > 30:
         return 'sell'
     return 'hold'
+
+
 
 def generate_signals(df):
     """
@@ -426,4 +434,5 @@ def execute_trade():
         logging.error("Failed to fetch sentiment data.")
     
 if __name__ == "__main__":
+    your_trading_strategy()
     main()
