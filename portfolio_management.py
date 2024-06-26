@@ -104,6 +104,10 @@ def track_portfolio_performance(portfolio):
     for index, row in portfolio.iterrows():
         logging.info(f"Asset: {row['asset']}, Quantity: {row['quantity']:.6f}, Value: {row['value']:.2f}, Weight: {row['weight']:.2f}, Weighted Performance: {row['weighted_performance']:.2f}")
 
+    # Format the portfolio DataFrame as a table
+    formatted_portfolio = portfolio[['asset', 'quantity', 'value', 'weight', 'weighted_performance']].to_string(index=False)
+    logging.info("Individual Asset Performance:\n" + formatted_portfolio)
+    
 def rebalance_portfolio(portfolio, target_weights):
     """Rebalance the portfolio according to target weights."""
     if portfolio.empty:

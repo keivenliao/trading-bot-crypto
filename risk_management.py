@@ -109,10 +109,10 @@ def detect_head_and_shoulders(data):
     try:
         pattern = [0] * len(data)
         for i in range(2, len(data) - 1):
-            if (data['high'][i - 2] < data['high'][i - 1] > data['high'][i] and
-                data['high'][i - 1] > data['high'][i + 1] and
-                data['low'][i - 2] > data['low'][i - 1] < data['low'][i] and
-                data['low'][i - 1] < data['low'][i + 1]):
+            if (data['high'].iloc[i - 2] < data['high'].iloc[i - 1] > data['high'].iloc[i] and
+                data['high'].iloc[i - 1] > data['high'].iloc[i + 1] and
+                data['low'].iloc[i - 2] > data['low'].iloc[i - 1] < data['low'].iloc[i] and
+                data['low'].iloc[i - 1] < data['low'].iloc[i + 1]):
                 pattern[i] = 1
         return pattern
     except Exception as e:
@@ -126,13 +126,14 @@ def detect_double_top(data):
     try:
         pattern = [0] * len(data)
         for i in range(1, len(data) - 1):
-            if (data['high'][i - 1] < data['high'][i] > data['high'][i + 1] and
-                data['high'][i] == data['high'][i + 1]):
+            if (data['high'].iloc[i - 1] < data['high'].iloc[i] > data['high'].iloc[i + 1] and
+                data['high'].iloc[i] == data['high'].iloc[i + 1]):
                 pattern[i] = 1
         return pattern
     except Exception as e:
         logging.error("Failed to detect Double Top pattern: %s", e)
         raise e
+
     
     
 def calculate_position_size(balance, risk_percentage, entry_price, stop_loss):
@@ -151,8 +152,8 @@ def calculate_atr(data, period=14):
 
 #date here was suggessted by GPT ., but the code was as atr = calculate_atr()data 
 # Ensure calculate_atr calculates ATR based on your data frame (data) and possibly adjusts the period parameter based on market conditions. 
-def calculate_stop_loss(entry_price, atr_multiplier):
-    atr = calculate_atr(date)  # Implement calculate_atr function
+def calculate_stop_loss(entry_price, atr_multiplier, data):
+    atr = calculate_atr(data)  # Implement calculate_atr function
     stop_loss = entry_price - atr_multiplier * atr
     return stop_loss
 
@@ -268,35 +269,62 @@ def main():
         
         symbol = 'BTCUSDT'
         
-    
         data = fetch_historical_data(exchange, symbol)
         data = calculate_technical_indicators(data)
         data = detect_patterns(data)
         
         # Example of market analysis (hypothetical)
-        if data.iloc[-1]['SMA_50'] > data.iloc[-1]['SMA_200']:
-            trend = 'bullish'  # Example: SMA 50 above SMA 200
+        if (data['SMA_50'].iloc[-1] > data['SMA_200'].iloc[-1]):
+            trend = 'bullish'
+        elif (data['SMA_50'].iloc[-1] < data['SMA_200'].iloc[-1]):
+            trend = 'bearish'
         else:
-            trend = 'bearish'  # Example: SMA 50 below SMA 200
+            trend = 'neutral'
+            
+        # Example of determining trend based on SMA indicators
+        if (data['SMA_50'].iloc[-1] > data['SMA_200'].iloc[-1]):
+            trend = 'bullish'
+        elif (data['SMA_50'].iloc[-1] < data['SMA_200'].iloc[-1]):
+            trend = 'bearish'
+        else:
+            trend = 'neutral'
 
-        
+        logging.info(f"Determined trend: {trend}")
+
+        # Example of applying condition explicitly
+        if (data['SMA_50'] > data['SMA_200']).any():
+            logging.info("SMA_50 is greater than SMA_200 for some rows")
+
+        # Continue with other trading logic based on the determined trend
+
         # Example of risk management parameters based on trend analysis
         if trend == 'bullish':
+            stop_loss, take_profit = adjust_stop_loss_take_profit(data, data.iloc[-1]['close'])
             side = 'buy'
-            amount = 0.001
-            stop_loss = calculate_stop_loss(data.iloc[-1]['close'], 1.5, 5)  # Example: Adjust based on your strategy
-            take_profit = calculate_take_profit(data.iloc[-1]['close'], 2.0, stop_loss)  # Example: Adjust based on your strategy
+            amount = 0.003  # Example: Adjust based on your strategy
         elif trend == 'bearish':
+            stop_loss, take_profit = adjust_stop_loss_take_profit(data, data.iloc[-1]['close'])
             side = 'sell'
-            amount = 0.001
-            stop_loss = calculate_stop_loss(data.iloc[-1]['close'], 1.5, 5)  # Example: Adjust based on your strategy
-            take_profit = calculate_take_profit(data.iloc[-1]['close'], 2.0, stop_loss)  # Example: Adjust based on your strategy
+            amount = 0.003  # Example: Adjust based on your strategy
         else:
             logging.info("No clear trend identified, skipping order placement")
             return
 
-        # Uncomment the line below to place a real order
-        place_order_with_risk_management(exchange, symbol, side, amount, stop_loss, take_profit)
+        # Example of determining trend based on SMA indicators
+        if (data['SMA_50'].iloc[-1] > data['SMA_200'].iloc[-1]):
+            trend = 'bullish'
+        elif (data['SMA_50'].iloc[-1] < data['SMA_200'].iloc[-1]):
+            trend = 'bearish'
+        else:
+            trend = 'neutral'
+
+# Example of applying condition explicitly
+        if (data['SMA_50'] > data['SMA_200']).any():
+        # Do something when SMA_50 is greater than SMA_200 for any row
+
+
+            # Uncomment the line below to place a real order
+            place_order_with_risk_management(exchange, symbol, side, amount, stop_loss, take_profit)
 
     except ccxt.NetworkError as e:
         logging.error("A network error occurred: %s", e)
@@ -306,6 +334,8 @@ def main():
         logging.error("Value error occurred: %s", e)
         
         
-
 if __name__ == "__main__":
     main()
+    
+    
+    #2024-06-27 03:57:49,130 - ERROR - Value error occurred: The truth value of a Series is ambiguous. Use a.empty, a.bool(), a.item(), a.any() or a.all().

@@ -1,15 +1,13 @@
 from multiprocessing import Value
-import numpy as np
-from textblob import TextBlob
-import tweepy
 import os
-import ccxt
+import numpy as np
 import pandas as pd
-import pandas_ta as ta
+import ccxt
 import logging
 import time
 from datetime import datetime
-from typing import Tuple
+from textblob import TextBlob
+from pandas_ta import sma, rsi, macd
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -34,40 +32,63 @@ def synchronize_time_with_exchange(exchange: ccxt.Exchange) -> int:
         logging.error("Failed to synchronize time with exchange: %s", sync_error)
         raise sync_error
 
-# fetch_data.py
-
-import pandas as pd
-
-def get_historical_data(file_path):
-    """
-    Load historical data from a CSV file.
-    """
+def get_historical_data(exchange: ccxt.Exchange, symbol: str, timeframe: str = '1h', limit: int = 100) -> pd.DataFrame:
     try:
-        df = pd.read_csv(file_path)
+        time_offset = synchronize_time_with_exchange(exchange)
+        params = {
+            'recvWindow': 10000,
+            'timestamp': exchange.milliseconds() + time_offset
+        }
+        ohlcv = exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit, params=params)
+        df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+        df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+        logging.info("Fetched OHLCV data for %s", symbol)
         return df
-    except Exception as e:
-        raise IOError(f"Error loading historical data from {file_path}: {e}")
+    except ccxt.NetworkError as net_error:
+        logging.error("Network error while fetching OHLCV data: %s", net_error)
+        raise net_error
+    except ccxt.ExchangeError as exchange_error:
+        logging.error("Exchange error while fetching OHLCV data: %s", exchange_error)
+        raise exchange_error
+    except ccxt.BaseError as base_error:
+        logging.error("Unexpected error while fetching OHLCV data: %s", base_error)
+        raise base_error
 
-# Add any other functions like get_tweets, analyze_sentiment, etc.
+def get_tweets(query: str, count: int = 100):
+    # Mock function to simulate fetching tweets
+    tweets = [f"Tweet {i} about {query}" for i in range(count)]
+    logging.info("Fetched %d tweets about %s", count, query)
+    return tweets
 
+def analyze_sentiment(tweets: list):
+    sentiments = []
+    for tweet in tweets:
+        analysis = TextBlob(tweet)
+        sentiments.append(analysis.sentiment.polarity)
+    avg_sentiment = sum(sentiments) / len(sentiments) if sentiments else 0
+    logging.info("Average sentiment polarity: %.2f", avg_sentiment)
+    return avg_sentiment
 
-def get_tweets(api_key, api_secret, query):
-    auth = tweepy.AppAuthHandler(api_key, api_secret)
-    api = tweepy.API(auth)
-    tweets = api.search(q=query, count=100, lang='en')
-    return [tweet.text for tweet in tweets]
+def fetch_real_time_data(exchange: ccxt.Exchange, symbol: str, timeframe: str = '1m', limit: int = 100):
+    try:
+        while True:
+            new_df = get_historical_data(exchange, symbol, timeframe, limit)
+            print(new_df.tail())
+            time.sleep(60)
+    except ccxt.NetworkError as net_error:
+        logging.error("A network error occurred: %s", net_error)
+    except ccxt.ExchangeError as exchange_error:
+        logging.error("An exchange error occurred: %s", exchange_error)
+    except Exception as error:
+        logging.error("An unexpected error occurred: %s", error)
 
-def analyze_sentiment(tweets):
-    sentiment_scores = [TextBlob(tweet).sentiment.polarity for tweet in tweets]
-    return np.mean(sentiment_scores)
-
-def fetch_ohlcv(exchange: ccxt.Exchange, symbol: str, timeframe: str = '1h', limit: int = 100) -> pd.DataFrame:
+def fetch_historical_data(exchange: ccxt.Exchange, symbol: str, timeframe: str = '1h', limit: int = 100) -> pd.DataFrame:
     """
-    Fetch OHLCV data for a given symbol and timeframe from the exchange.
+    Fetch historical OHLCV data from the specified exchange.
     
     Args:
     - exchange: ccxt.Exchange object
-    - symbol: Trading pair symbol (e.g., 'BTCUSDT')
+    - symbol: Trading pair symbol (e.g., 'BTC/USDT')
     - timeframe: Timeframe for OHLCV data (default: '1h')
     - limit: Number of data points to fetch (default: 100)
     
@@ -80,8 +101,6 @@ def fetch_ohlcv(exchange: ccxt.Exchange, symbol: str, timeframe: str = '1h', lim
         
         # Fetch OHLCV data
         params = {
-            'param1': Value,
-            'param2': Value,
             'recvWindow': 10000,  # Adjust recvWindow as needed
             'timestamp': exchange.milliseconds() + time_offset
         }
@@ -101,7 +120,7 @@ def fetch_ohlcv(exchange: ccxt.Exchange, symbol: str, timeframe: str = '1h', lim
         logging.error("Unexpected error while fetching OHLCV data: %s", base_error)
         raise base_error
 
-def perform_technical_analysis(df: pd.DataFrame, sma_lengths: Tuple[int, int] = (20, 50), rsi_length: int = 14, macd_params: Tuple[int, int, int] = (12, 26, 9)) -> pd.DataFrame:
+def perform_technical_analysis(df: pd.DataFrame, sma_lengths: tuple = (20, 50), rsi_length: int = 14, macd_params: tuple = (12, 26, 9)) -> pd.DataFrame:
     """
     Perform technical analysis on the OHLCV data DataFrame.
     
@@ -120,14 +139,14 @@ def perform_technical_analysis(df: pd.DataFrame, sma_lengths: Tuple[int, int] = 
         macd_fast, macd_slow, macd_signal = macd_params
         
         # Calculate SMAs
-        df[f'SMA_{sma_short}'] = ta.sma(df['close'], length=sma_short)
-        df[f'SMA_{sma_long}'] = ta.sma(df['close'], length=sma_long)
+        df[f'SMA_{sma_short}'] = sma(df['close'], length=sma_short)
+        df[f'SMA_{sma_long}'] = sma(df['close'], length=sma_long)
         
         # Calculate RSI
-        df['RSI'] = ta.rsi(df['close'], length=rsi_length)
+        df['RSI'] = rsi(df['close'], length=rsi_length)
         
         # Calculate MACD
-        macd_data = ta.macd(df['close'], fast=macd_fast, slow=macd_slow, signal=macd_signal)
+        macd_data = macd(df['close'], fast=macd_fast, slow=macd_slow, signal=macd_signal)
         
         # Assign MACD values
         df['MACD'] = macd_data['MACD'] if 'MACD' in macd_data else None
@@ -144,8 +163,7 @@ def perform_technical_analysis(df: pd.DataFrame, sma_lengths: Tuple[int, int] = 
         logging.error("An error occurred during technical analysis: %s", e)
         raise e
 
-
-def detect_signals(df: pd.DataFrame, sma_lengths: Tuple[int, int]) -> None:
+def detect_signals(df: pd.DataFrame, sma_lengths: tuple) -> None:
     """
     Detect bullish or bearish signals in the OHLCV data.
     
@@ -182,26 +200,6 @@ def detect_signals(df: pd.DataFrame, sma_lengths: Tuple[int, int]) -> None:
     except Exception as e:
         logging.error("An error occurred during signal detection: %s", e)
         raise e
-    
-def fetch_historical_data(exchange, symbol, timeframe, limit=100, params=None):
-    """
-    Fetch historical OHLCV data from the specified exchange.
-    
-    :param exchange: The exchange object initialized with API keys.
-    :param symbol: The trading pair symbol (e.g., 'BTCUSDT').
-    :param timeframe: The timeframe for the data (e.g., '1d' for daily data).
-    :param limit: The number of data points to retrieve (default is 100).
-    :param params: Additional parameters for the API call (default is None).
-    :return: A list of OHLCV data.
-    """
-    if params is None:
-        params = {}
-    try:
-        ohlcv = exchange.fetch_ohlcv(symbol, timeframe, limit=limit, params=params)
-        return ohlcv
-    except ccxt.BaseError as e:
-        print(f"An error occurred: {e}")
-        return []
 
 def fetch_real_time_data(exchange: ccxt.Exchange, symbol: str, timeframe: str = '1m', limit: int = 100):
     """
@@ -210,14 +208,14 @@ def fetch_real_time_data(exchange: ccxt.Exchange, symbol: str, timeframe: str = 
     
     Args:
     - exchange: ccxt.Exchange object
-    - symbol: Trading pair symbol (e.g., 'BTCUSDT')
+    - symbol: Trading pair symbol (e.g., 'BTC/USDT')
     - timeframe: Timeframe for OHLCV data (default: '1m')
     - limit: Number of data points to initially fetch (default: 100)
     """
     try:
         while True:
             # Fetch new data points
-            new_df = fetch_ohlcv(exchange, symbol, timeframe, limit)
+            new_df = fetch_historical_data(exchange, symbol, timeframe, limit)
             
             # Perform technical analysis on new data
             new_df = perform_technical_analysis(new_df)
@@ -238,17 +236,6 @@ def fetch_real_time_data(exchange: ccxt.Exchange, symbol: str, timeframe: str = 
         logging.error("An unexpected error occurred: %s", error)
         # Handle any other unexpected errors
 
-def fetch_data(self, symbol, timeframe='1h', limit=100):
-    try:
-        ohlcv = self.exchange.fetch_ohlcv(symbol, timeframe, limit=limit)
-        df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-        df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
-        logging.info(f"Fetched real-time OHLCV data for {symbol}")
-        return df
-    except ccxt.BaseError as e:
-        logging.error("Error fetching real-time OHLCV data: %s", e)
-        raise e
-
 def main():
     try:
         # Retrieve API keys and secrets from environment variables
@@ -266,7 +253,7 @@ def main():
         })
 
         # Start fetching real-time data
-        symbol = 'BTCUSDT'
+        symbol = 'BTC/USDT'
         fetch_real_time_data(exchange, symbol)
 
     except ccxt.NetworkError as net_error:
@@ -282,12 +269,5 @@ def main():
         logging.error("An unexpected error occurred: %s", error)
         # Handle any other unexpected errors
 
-# tradingbot/fetch_data.py
-
-def fetch_historical_data(exchange, symbol, timeframe='1h', limit=100, params=None):
-    return exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit, params=params)
-
-
 if __name__ == "__main__":
     main()
-

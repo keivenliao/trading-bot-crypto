@@ -38,7 +38,7 @@ API_KEY = os.getenv('BYBIT_API_KEY')
 API_SECRET = os.getenv('BYBIT_API_SECRET')
 
 class TradingEnv(gym.Env):
-    def __init__(self, df, initial_balance=10000, leverage=1):
+    def __init__(self, df, initial_balance=10000, leverage=50):
         super(TradingEnv, self).__init__()
         self.df = df
         self.current_step = 0
@@ -59,19 +59,21 @@ class TradingEnv(gym.Env):
         self.position = None
         self.position_size = 0
         self.entry_price = 0
-        return self.df.iloc[self.current_step].values
-
+        return self.df.iloc[self.current_step].values , self._next_observation()
+    
     def step(self, action):
+        # Execute one time step within the environment
         self.current_step += 1
-
-        if self.current_step >= len(self.df) - 1:
-            self.done = True
-
-        reward = self._take_action(action)
-        obs = self._next_observation()
+        if self.current_step >= len(self.df):
+            done = True
+        else:
+            done = False
+        
+        reward = self._calculate_reward(action)
+        obs = self._next_observation() if not done else np.zeros(self.df.shape[1])
 
         return obs, reward, self.done, {}
-
+    
     def _take_action(self, action):
         current_price = self.df.iloc[self.current_step]['Close']
         reward = 0
@@ -108,28 +110,45 @@ class TradingEnv(gym.Env):
             self.balance += self.position_size * (current_price - self.entry_price)
             self.position = None
             self.position_size = 0
-            self.entry_price = 0
+            self.entry_price = 0    
+    
+    def _calculate_reward(self, action):
+        current_price = self.df.iloc[self.current_step]['Close']
+        reward = 0
+        
+        # Implement more sophisticated reward calculation based on trading performance
+        if self.position == 'long':
+            reward = (current_price - self.entry_price) * self.position_size
+        elif self.position == 'short':
+            reward = (self.entry_price - current_price) * self.position_size
+        
+        # Consider additional factors such as fees, slippage, or risk-adjusted returns
 
         return reward
-
+        
     def render(self, mode='human', close=False):
         print(f'Step: {self.current_step}')
         print(f'Balance: {self.balance}')
         print(f'Position: {self.position}')
         print(f'Position Size: {self.position_size}')
         print(f'Entry Price: {self.entry_price}')
+    
+    def _next_observation(self):
+        # Get the next observation
+        obs = self.df.iloc[self.current_step].values
+        return obs , reward
+
 
     def _next_observation(self):
         return self.df.iloc[self.current_step].values
 
-# Example usage
 if __name__ == "__main__":
-    # Sample DataFrame with stock data
+    # Sample DataFrame with cryptocurrency data
     data = {
-        'Open': [1.0, 1.2, 1.1, 1.3, 1.4],
-        'High': [1.1, 1.3, 1.2, 1.4, 1.5],
-        'Low': [0.9, 1.1, 1.0, 1.2, 1.3],
-        'Close': [1.0, 1.2, 1.1, 1.3, 1.4],
+        'Open': [40000, 40100, 40200, 40300, 40400],
+        'High': [40100, 40200, 40300, 40400, 40500],
+        'Low': [39900, 40000, 40100, 40200, 40300],
+        'Close': [40050, 40150, 40250, 40350, 40450],
     }
     df = pd.DataFrame(data)
 
@@ -142,33 +161,13 @@ if __name__ == "__main__":
         obs, reward, done, _ = env.step(action)
         env.render()
 
-# Example usage
-if __name__ == "__main__":
-    # Sample DataFrame with stock data
+    # Prepare the data for additional analysis
     data = {
-        'Open': [1.0, 1.2, 1.1, 1.3, 1.4],
-        'High': [1.1, 1.3, 1.2, 1.4, 1.5],
-        'Low': [0.9, 1.1, 1.0, 1.2, 1.3],
-        'Close': [1.0, 1.2, 1.1, 1.3, 1.4],
+        'feature1': np.random.rand(1000),
+        'feature2': np.random.rand(1000),
+        'feature3': np.random.rand(1000)
     }
     df = pd.DataFrame(data)
-
-    env = TradingEnv(df)
-    obs = env.reset()
-    done = False
-
-    while not done:
-        action = env.action_space.sample()  # Random action
-        obs, reward, done, _ = env.step(action)
-        env.render()
-
-# Prepare the data
-data = {
-    'feature1': np.random.rand(1000),
-    'feature2': np.random.rand(1000),
-    'feature3': np.random.rand(1000)
-}
-df = pd.DataFrame(data)
 
 # Create and wrap the environment
 def create_env():
@@ -247,7 +246,68 @@ def synchronize_system_time():
 def your_trading_strategy():
     # Fetch historical data for backtesting
     historical_data = get_data_for_backtesting()
+    backtest_results = backtest_strategy(historical_data)
     print(historical_data.head())
+    print(backtest_results)
+    
+    
+def backtest_strategy(data):
+    """
+    Backtest trading strategy based on historical data.
+    
+    Parameters:
+    data (pd.DataFrame): DataFrame containing historical OHLCV data.
+
+    Returns:
+    dict: Dictionary containing backtest results such as profitability, drawdowns, and metrics.
+    """
+    # Initialize variables for tracking performance metrics
+    initial_balance = 10000  # Example initial balance
+    balance = initial_balance
+    position = None
+    entry_price = 0
+    position_size = 0
+    trades = []
+
+    # Iterate through historical data to simulate trading
+    for i in range(len(data)):
+        # Implement your trading logic here based on signals or strategy
+        # For example, using SMA crossover strategy
+        if i > 0 and data['SMA_50'][i] > data['SMA_200'][i] and data['SMA_50'][i-1] <= data['SMA_200'][i-1]:
+            # Buy signal
+            if position is None:
+                position = 'long'
+                entry_price = data['close'][i]
+                position_size = (balance * 0.1) / entry_price  # Adjust leverage or position sizing as needed
+                trades.append(('buy', data.index[i], entry_price, position_size))
+        
+        elif i > 0 and data['SMA_50'][i] < data['SMA_200'][i] and data['SMA_50'][i-1] >= data['SMA_200'][i-1]:
+            # Sell signal
+            if position is not None:
+                exit_price = data['close'][i]
+                balance += position_size * (exit_price - entry_price)
+                trades.append(('sell', data.index[i], exit_price, position_size))
+                position = None
+        
+        # Calculate portfolio value based on current position
+        if position == 'long':
+            current_value = balance + (position_size * (data['close'][i] - entry_price))
+        else:
+            current_value = balance
+
+    # Calculate metrics: profitability, drawdowns, etc.
+    final_balance = balance
+    profit = final_balance - initial_balance
+    return {
+        'initial_balance': initial_balance,
+        'final_balance': final_balance,
+        'profit': profit,
+        'trades': trades
+        # Add more metrics as needed: Sharpe ratio, maximum drawdown, etc.
+    }
+
+
+
 
 def detect_signals(df):
     latest = df.iloc[-1]
@@ -411,7 +471,7 @@ def execute_trade():
         if sentiment_score > 0.5:
             # Example logic to place a buy order
             order = session.place_active_order(
-                symbol="BTCUSD",
+                symbol="BTCUSDT",
                 side="Buy",
                 order_type="Market",
                 qty=0.002,  # Adjust the quantity as needed
@@ -421,7 +481,7 @@ def execute_trade():
         elif sentiment_score < -0.5:
             # Example logic to place a sell order
             order = session.place_active_order(
-                symbol="BTCUSD",
+                symbol="BTCUSDT",
                 side="Sell",
                 order_type="Market",
                 qty=0.002,  # Adjust the quantity as needed

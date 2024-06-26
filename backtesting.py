@@ -5,8 +5,10 @@ import pandas_ta as ta
 import logging
 import os
 
+from sympy import Order
+
 import exchanges
-from fetch_data import fetch_ohlcv
+from trading_strategy import fetch_ohlcv
 from database import create_db_connection, fetch_historical_data, close_db_connection
 
 # Set up logging
@@ -52,9 +54,12 @@ def calculate_indicators(df, sma_short=20, sma_long=50, rsi_period=14, macd_fast
         df.ta.macd(fast=macd_fast, slow=macd_slow, signal=macd_signal, append=True)
         df.ta.bbands(length=20, std=2, append=True)  # Bollinger Bands
         df.ta.atr(length=14, append=True)  # Average True Range
+        df.ta.vwma(append=True)  # Volume Weighted Moving Average
         df['Volume_MA_20'] = df['volume'].rolling(window=20).mean()
-        logging.info("Calculated Volume Moving Average")
-        logging.info("Calculated SMA, RSI, MACD, Bollinger Bands, and ATR indicators")
+        df.ta.obv(append=True)  # On-Balance Volume
+        df.ta.ichimoku(append=True)  # Ichimoku Cloud
+        df.ta.fibonacci(append=True)  # Fibonacci Retracement
+        logging.info("Calculated SMA, RSI, MACD, Bollinger Bands, ATR, VWMA, OBV, Ichimoku Cloud, and Fibonacci indicators")
         return df
     except Exception as e:
         logging.error("Error during technical analysis: %s", e)
@@ -89,10 +94,6 @@ def detect_signals(df, sma_short=20, sma_long=50, rsi_overbought=70, rsi_oversol
         # Fill NaN values with previous values
         df.fillna(method='ffill', inplace=True)
 
-        # Debug prints for indicators
-        print(f"Latest SMA_{sma_short}: {latest[f'SMA_{sma_short}']}, SMA_{sma_long}: {latest[f'SMA_{sma_long}']}, RSI_14: {latest['RSI_14']}")
-        print(f"Previous SMA_{sma_short}: {previous[f'SMA_{sma_short}']}, SMA_{sma_long}: {previous[f'SMA_{sma_long}']}, RSI_14: {previous['RSI_14']}")
-
         # Simple Moving Average (SMA) Crossover
         if previous[f'SMA_{sma_short}'] < previous[f'SMA_{sma_long}'] and latest[f'SMA_{sma_short}'] > latest[f'SMA_{sma_long}']:
             print("Buy signal detected based on SMA crossover")
@@ -108,6 +109,33 @@ def detect_signals(df, sma_short=20, sma_long=50, rsi_overbought=70, rsi_oversol
         elif latest['RSI_14'] < rsi_oversold:
             print("Buy signal detected based on RSI oversold")
             return 'buy'
+
+        # MACD Histogram
+        if latest['MACDh_12_26_9'] > 0 and previous['MACDh_12_26_9'] < 0:
+            print("Buy signal detected based on MACD Histogram")
+            return 'buy'
+        elif latest['MACDh_12_26_9'] < 0 and previous['MACDh_12_26_9'] > 0:
+            print("Sell signal detected based on MACD Histogram")
+            return 'sell'
+
+        # Ichimoku Cloud signals
+        if (latest['tenkan_sen'] > latest['kijun_sen'] and
+            previous['tenkan_sen'] < previous['kijun_sen']):
+            print("Buy signal detected based on Ichimoku Cloud (Tenkan-Kijun crossover)")
+            return 'buy'
+        elif (latest['tenkan_sen'] < latest['kijun_sen'] and
+              previous['tenkan_sen'] > previous['kijun_sen']):
+            print("Sell signal detected based on Ichimoku Cloud (Tenkan-Kijun crossover)")
+            return 'sell'
+
+        # Fibonacci Retracement levels
+        fib_levels = df['Fib_0.236']
+        if latest['close'] < fib_levels['Fib_0.236']:
+            print("Buy signal detected near Fibonacci support level")
+            return 'buy'
+        elif latest['close'] > fib_levels['Fib_0.618']:
+            print("Sell signal detected near Fibonacci resistance level")
+            return 'sell'
 
         sentiment_score = analyze_market_sentiment()
         if sentiment_score > 0.5:

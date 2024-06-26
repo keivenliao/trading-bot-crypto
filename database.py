@@ -118,3 +118,6 @@ if __name__ == "__main__":
         
         # Close the database connection
         close_db_connection(conn)
+
+
+#fetch every details of what all my set of code is doing and improvise or optimize the database

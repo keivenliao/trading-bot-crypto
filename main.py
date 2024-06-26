@@ -169,8 +169,10 @@ def main():
         # Example: Determine current market conditions
         if data.iloc[-1]['SMA_50'] > data.iloc[-1]['SMA_200']:
             stop_loss, take_profit = adjust_stop_loss_take_profit(data, data.iloc[-1]['close'])
+            place_order_with_risk_management(exchange, symbol, 'buy', 0.001, stop_loss, take_profit)  # Place the order with stop loss and take profit
         elif data.iloc[-1]['SMA_50'] < data.iloc[-1]['SMA_200']:
             stop_loss, take_profit = adjust_stop_loss_take_profit(data, data.iloc[-1]['close'])
+            place_order_with_risk_management(exchange, symbol, 'sell', 0.001, stop_loss, take_profit)  # Place the order with stop loss and take profit
         else:
             stop_loss = calculate_stop_loss(data.iloc[-1]['close'], 1.0, data)
             take_profit = calculate_take_profit(data.iloc[-1]['close'], 1.0, stop_loss)
