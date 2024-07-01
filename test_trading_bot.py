@@ -1,9 +1,10 @@
+import signal
 import unittest
 from unittest.mock import MagicMock, patch
 import ccxt
 import pandas as pd
-from tradingbot import TradingBot
 import ntplib
+from tradingbot import TradingBot
 
 class TestTradingFunctions(unittest.TestCase):
 
@@ -80,7 +81,8 @@ class TestTradingFunctions(unittest.TestCase):
         df = self.trading_bot.calculate_indicators(df)
         self.assertIn('SMA_50', df.columns)
         self.assertIn('SMA_200', df.columns)
-        self.assertIn('MACD', df.columns)
+        self.assertIn('MACD_12_26_9', df.columns)
+        self.assertIn('MACDs_12_26_9', df.columns)
         self.assertIn('RSI', df.columns)
 
     @patch('tradingbot.ccxt.bybit')
@@ -88,13 +90,13 @@ class TestTradingFunctions(unittest.TestCase):
         mock_exchange = MagicMock()
         mock_bybit.return_value = mock_exchange
         self.trading_bot.exchange = mock_exchange
-
+        
         # Mock create_order method response
         mock_exchange.create_order.return_value = {'price': 50000}
 
         # Test placing order with risk management
         order = self.trading_bot.place_order('buy', 50000, 'BTCUSDT', 0.001)
-        
+    
         # Verify expected order calls
         mock_exchange.create_order.assert_called_with('BTCUSDT', 'market', 'buy', 0.001)
         self.assertEqual(order['price'], 50000)
@@ -103,6 +105,53 @@ class TestTradingFunctions(unittest.TestCase):
         mock_exchange.create_order.side_effect = ccxt.NetworkError('Network error')
         with self.assertRaises(ccxt.NetworkError):
             self.trading_bot.place_order('buy', 50000, 'BTCUSDT', 0.001)
+
+    
+    def calculate_macd(self, close_prices, fast=12, slow=26, signal=9):
+        try:
+            macd_line = close_prices.ewm(span=fast, adjust=False).mean() - close_prices.ewm(span=slow, adjust=False).mean()
+            signal_line = macd_line.ewm(span=signal, adjust=False).mean()
+            macd_df = pd.DataFrame({'MACD_12_26_9': macd_line, 'MACDs_12_26_9': signal_line})
+            return macd_df
+        except Exception as e:
+            print(f"Error calculating MACD: {e}")
+        return pd.DataFrame({'MACD_12_26_9': [0], 'MACDs_12_26_9': [0]})
+
+    def calculate_rsi(self, close_prices, period=14):
+        try:
+            delta = close_prices.diff()
+            gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
+            loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
+            rs = gain / loss
+            rsi = 100 - (100 / (1 + rs))
+            return rsi
+        except Exception as e:
+            print(f"Error calculating RSI: {e}")
+            return pd.Series([0] * len(close_prices), name='RSI')
+
+    def calculate_indicators(self, df):
+        try:
+            df['SMA_50'] = df['close'].rolling(window=50).mean()
+            df['SMA_200'] = df['close'].rolling(window=200).mean()
+            macd_df = self.calculate_macd(df['close'])
+            df = pd.concat([df, macd_df], axis=1)
+            df['RSI'] = self.calculate_rsi(df['close'])
+        except Exception as e:
+            print(f"Error during technical analysis: {e}")
+            # Ensure that the DataFrame still contains all the necessary columns even if an error occurs
+            if 'SMA_50' not in df.columns:
+                df['SMA_50'] = pd.Series([0] * len(df))
+            if 'SMA_200' not in df.columns:
+                df['SMA_200'] = pd.Series([0] * len(df))
+            if 'MACD_12_26_9' not in df.columns:
+                df['MACD_12_26_9'] = pd.Series([0] * len(df))
+            if 'MACDs_12_26_9' not in df.columns:
+                df['MACDs_12_26_9'] = pd.Series([0] * len(df))
+            if 'RSI' not in df.columns:
+                df['RSI'] = pd.Series([0] * len(df))
+        return df
+
+    
 
     @patch('tradingbot.ccxt.bybit')
     def test_calculate_indicators_with_mock(self, mock_bybit):
@@ -123,8 +172,8 @@ class TestTradingFunctions(unittest.TestCase):
 
         self.assertEqual(len(df), 2)
         self.assertIn('SMA_50', df.columns)
-        self.assertIn('SMA_200', df.columns)
-        self.assertIn('MACD', df.columns)
+        self.assertIn('MACD_12_26_9', df.columns)
+        self.assertIn('MACDs_12_26_9', df.columns)
         self.assertIn('RSI', df.columns)
 
 

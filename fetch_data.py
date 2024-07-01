@@ -54,6 +54,42 @@ def get_historical_data(exchange: ccxt.Exchange, symbol: str, timeframe: str = '
         logging.error("Unexpected error while fetching OHLCV data: %s", base_error)
         raise base_error
 
+def fetch_data(exchange, symbol='BTCUSDT', timeframe='1h', limit=100):
+    """Fetch historical OHLCV data from the exchange."""
+    attempts = 0
+    max_attempts = 5
+    while attempts < max_attempts:
+        try:
+            time_offset = synchronize_time_with_exchange(exchange)
+            params = {'recvWindow': 10000, 'timestamp': exchange.milliseconds() + time_offset}
+            ohlcv = exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit, params=params)
+        
+            df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+            df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+            logging.info("Fetched OHLCV data for %s", symbol)
+            return df
+        except (ccxt.NetworkError, ccxt.ExchangeError, ccxt.BaseError) as error:
+            attempts += 1
+            logging.error(f"Error fetching data (Attempt {attempts}/{max_attempts}): {error}")
+            time.sleep(2 ** attempts)
+    raise Exception("Failed to fetch data after multiple attempts")
+
+
+def fetch_ohlcv(exchange: ccxt.Exchange, symbol: str, timeframe: str = '1h', limit: int = 00) -> pd.DataFrame:
+    """
+    Fetch OHLCV data.
+    """
+    try:
+        params = {'recvWindow': 30000}  # Increase recv_window to 30 seconds
+        ohlcv = exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit, params=params)
+        df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+        df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+        logging.info("Fetched OHLCV data")
+        return df
+    except ccxt.BaseError as e:
+        logging.error("Failed to fetch OHLCV data: %s", e)
+        raise
+
 def get_tweets(query: str, count: int = 100):
     # Mock function to simulate fetching tweets
     tweets = [f"Tweet {i} about {query}" for i in range(count)]
@@ -70,17 +106,58 @@ def analyze_sentiment(tweets: list):
     return avg_sentiment
 
 def fetch_real_time_data(exchange: ccxt.Exchange, symbol: str, timeframe: str = '1m', limit: int = 100):
+    """
+    Fetch real-time OHLCV data for a symbol from the exchange.
+    Continuously fetches new data points.
+    
+    Args:
+    - exchange: ccxt.Exchange object
+    - symbol: Trading pair symbol (e.g., 'BTC/USDT')
+    - timeframe: Timeframe for OHLCV data (default: '1m')
+    - limit: Number of data points to initially fetch (default: 100)
+    """
     try:
         while True:
-            new_df = get_historical_data(exchange, symbol, timeframe, limit)
-            print(new_df.tail())
-            time.sleep(60)
+            # Fetch new data points
+            new_df = fetch_historical_data(exchange, symbol, timeframe, limit)
+            
+            # Perform technical analysis on new data
+            new_df = perform_technical_analysis(new_df)
+            
+            # Calculate additional indicators
+            new_df = calculate_bollinger_bands(new_df)
+            new_df = calculate_atr(new_df)
+            new_df = calculate_vwma(new_df)
+            new_df = calculate_obv(new_df)
+            new_df = calculate_ichimoku_cloud(new_df)
+            new_df = calculate_fibonacci_levels(new_df, new_df['low'].min(), new_df['high'].max())
+            
+            # Print or process new data as needed
+            print(new_df.tail())  # Example: print last few rows of new data
+            
+            # Sleep for a minute (or desired interval)
+            time.sleep(60)  # Sleep for 60 seconds (1 minute)
+            
     except ccxt.NetworkError as net_error:
         logging.error("A network error occurred: %s", net_error)
+        # Retry or handle the error as needed
     except ccxt.ExchangeError as exchange_error:
         logging.error("An exchange error occurred: %s", exchange_error)
+        # Handle the exchange-specific error
     except Exception as error:
         logging.error("An unexpected error occurred: %s", error)
+        # Handle any other unexpected errors
+
+            
+    except ccxt.NetworkError as net_error:
+        logging.error("A network error occurred: %s", net_error)
+        # Retry or handle the error as needed
+    except ccxt.ExchangeError as exchange_error:
+        logging.error("An exchange error occurred: %s", exchange_error)
+        # Handle the exchange-specific error
+    except Exception as error:
+        logging.error("An unexpected error occurred: %s", error)
+        # Handle any other unexpected errors
 
 def fetch_historical_data(exchange: ccxt.Exchange, symbol: str, timeframe: str = '1h', limit: int = 100) -> pd.DataFrame:
     """
@@ -236,6 +313,189 @@ def fetch_real_time_data(exchange: ccxt.Exchange, symbol: str, timeframe: str = 
         logging.error("An unexpected error occurred: %s", error)
         # Handle any other unexpected errors
 
+def calculate_bollinger_bands(df: pd.DataFrame, window: int = 20, std_dev: int = 2) -> pd.DataFrame:
+    """
+    Calculate Bollinger Bands (BB) for a given DataFrame.
+    
+    Args:
+    - df: DataFrame containing OHLCV data
+    - window: Window length for moving average (default: 20)
+    - std_dev: Standard deviation multiplier for bands (default: 2)
+    
+    Returns:
+    - df: DataFrame with added Bollinger Bands columns ('BB_Middle', 'BB_Upper', 'BB_Lower')
+    """
+    try:
+        # Calculate rolling mean and standard deviation
+        rolling_mean = df['close'].rolling(window=window).mean()
+        rolling_std = df['close'].rolling(window=window).std()
+        
+        # Calculate Bollinger Bands
+        df['BB_Middle'] = rolling_mean
+        df['BB_Upper'] = rolling_mean + (rolling_std * std_dev)
+        df['BB_Lower'] = rolling_mean - (rolling_std * std_dev)
+        
+        logging.info("Calculated Bollinger Bands with window %d and std dev %d", window, std_dev)
+        
+        return df
+    
+    except Exception as e:
+        logging.error("An error occurred during Bollinger Bands calculation: %s", e)
+        raise e
+
+def calculate_atr(df: pd.DataFrame, window: int = 14) -> pd.DataFrame:
+    """
+    Calculate Average True Range (ATR) for a given DataFrame.
+    
+    Args:
+    - df: DataFrame containing OHLCV data
+    - window: Window length for ATR calculation (default: 14)
+    
+    Returns:
+    - df: DataFrame with added ATR column ('ATR')
+    """
+    try:
+        # Calculate True Range
+        df['TR'] = pd.DataFrame({
+            'TR1': df['high'] - df['low'],
+            'TR2': (df['high'] - df['close'].shift()).abs(),
+            'TR3': (df['low'] - df['close'].shift()).abs()
+        }).max(axis=1)
+        
+        # Calculate ATR
+        df['ATR'] = df['TR'].rolling(window=window).mean()
+        
+        df.drop(columns=['TR'], inplace=True)  # Clean up temporary columns
+        
+        logging.info("Calculated Average True Range (ATR) with window %d", window)
+        
+        return df
+    
+    except Exception as e:
+        logging.error("An error occurred during ATR calculation: %s", e)
+        raise e
+
+def calculate_vwma(df: pd.DataFrame, window: int = 20) -> pd.DataFrame:
+    """
+    Calculate Volume Weighted Moving Average (VWMA) for a given DataFrame.
+    
+    Args:
+    - df: DataFrame containing OHLCV data
+    - window: Window length for VWMA calculation (default: 20)
+    
+    Returns:
+    - df: DataFrame with added VWMA column ('VWMA')
+    """
+    try:
+        # Calculate VWMA
+        df['VWMA'] = (df['close'] * df['volume']).rolling(window=window).sum() / df['volume'].rolling(window=window).sum()
+        
+        logging.info("Calculated Volume Weighted Moving Average (VWMA) with window %d", window)
+        
+        return df
+    
+    except Exception as e:
+        logging.error("An error occurred during VWMA calculation: %s", e)
+        raise e
+
+def calculate_obv(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Calculate On-Balance Volume (OBV) for a given DataFrame.
+    
+    Args:
+    - df: DataFrame containing OHLCV data
+    
+    Returns:
+    - df: DataFrame with added OBV column ('OBV')
+    """
+    try:
+        # Calculate OBV
+        df['OBV'] = np.where(df['close'] > df['close'].shift(), df['volume'], np.where(df['close'] < df['close'].shift(), -df['volume'], 0)).cumsum()
+        
+        logging.info("Calculated On-Balance Volume (OBV)")
+        
+        return df
+    
+    except Exception as e:
+        logging.error("An error occurred during OBV calculation: %s", e)
+        raise e
+
+def calculate_ichimoku_cloud(df: pd.DataFrame, conversion_line_period: int = 9, base_line_period: int = 26, lagging_span2_period: int = 52, displacement: int = 26) -> pd.DataFrame:
+    # Implementation remains the same as previously provided
+
+    """
+    Calculate Ichimoku Cloud components for a given DataFrame.
+    
+    Args:
+    - df: DataFrame containing OHLCV data
+    - conversion_line_period: Period for Conversion Line (default: 9)
+    - base_line_period: Period for Base Line (default: 26)
+    - lagging_span2_period: Period for Lagging Span 2 (default: 52)
+    - displacement: Displacement (default: 26)
+    
+    Returns:
+    - df: DataFrame with added Ichimoku Cloud columns ('Conversion_Line', 'Base_Line', 'Leading_Span_A', 'Leading_Span_B', 'Lagging_Span')
+    """
+    try:
+        # Calculate Conversion Line
+        conversion_line_high = df['high'].rolling(window=conversion_line_period).max()
+        conversion_line_low = df['low'].rolling(window=conversion_line_period).min()
+        df['Conversion_Line'] = (conversion_line_high + conversion_line_low) / 2
+        
+        # Calculate Base Line
+        base_line_high = df['high'].rolling(window=base_line_period).max()
+        base_line_low = df['low'].rolling(window=base_line_period).min()
+        df['Base_Line'] = (base_line_high + base_line_low) / 2
+        
+        # Calculate Leading Span A
+        df['Leading_Span_A'] = ((df['Conversion_Line'] + df['Base_Line']) / 2).shift(displacement)
+        
+        # Calculate Leading Span B
+        leading_span_b_high = df['high'].rolling(window=lagging_span2_period).max()
+        leading_span_b_low = df['low'].rolling(window=lagging_span2_period).min()
+        df['Leading_Span_B'] = ((leading_span_b_high + leading_span_b_low) / 2).shift(displacement)
+        
+        # Calculate Lagging Span
+        df['Lagging_Span'] = df['close'].shift(-displacement)
+        
+        logging.info("Calculated Ichimoku Cloud components with parameters: Conversion Line (%d), Base Line (%d), Lagging Span 2 (%d), Displacement (%d)", conversion_line_period, base_line_period, lagging_span2_period, displacement)
+        
+        return df
+    
+    except Exception as e:
+        logging.error("An error occurred during Ichimoku Cloud calculation: %s", e)
+        raise e
+
+def calculate_fibonacci_levels(df: pd.DataFrame, low: float, high: float) -> pd.DataFrame:
+    # Implementation remains the same as previously provided
+
+    """
+    Calculate Fibonacci Retracement levels for a given DataFrame.
+    
+    Args:
+    - df: DataFrame containing OHLCV data
+    - low: Lowest price in the range for Fibonacci retracement
+    - high: Highest price in the range for Fibonacci retracement
+    
+    Returns:
+    - df: DataFrame with added Fibonacci Retracement level columns
+    """
+    try:
+        fib_levels = [0, 0.236, 0.382, 0.5, 0.618, 1.0]
+        price_range = high - low
+        
+        for level in fib_levels:
+            df[f'Fib_{int(level * 100)}%'] = low + level * price_range
+        
+        logging.info("Calculated Fibonacci Retracement levels for price range (%.2f, %.2f)", low, high)
+        
+        return df
+    
+    except Exception as e:
+        logging.error("An error occurred during Fibonacci Retracement calculation: %s", e)
+        raise e
+
+
 def main():
     try:
         # Retrieve API keys and secrets from environment variables
@@ -253,7 +513,7 @@ def main():
         })
 
         # Start fetching real-time data
-        symbol = 'BTC/USDT'
+        symbol = 'BTCUSDT'
         fetch_real_time_data(exchange, symbol)
 
     except ccxt.NetworkError as net_error:

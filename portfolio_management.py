@@ -79,13 +79,15 @@ def fetch_derivative_positions():
 def fetch_current_prices(assets):
     """Fetch current prices for given assets from the exchange."""
     prices = {}
-    for asset in assets:
-        try:
+    try:
+        for asset in assets:
             ticker = exchange.fetch_ticker(asset)
             prices[asset] = ticker['last']
             logging.info(f"Fetched price for {asset}: {ticker['last']}")
-        except Exception as e:
-            logging.error(f"Error fetching price for {asset}: {e}")
+    except ccxt.NetworkError as e:
+        logging.error(f"Network error fetching price: {e}")
+    except ccxt.BaseError as e:
+        logging.error(f"Error fetching price: {e}")
     return prices
 
 def track_portfolio_performance(portfolio):

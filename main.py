@@ -4,12 +4,22 @@ import ccxt
 from retrying import retry
 import pandas as pd
 import ta
+from database import create_connection, create_tables, insert_trade, get_all_trades, close_connection
 from database import init_db, create_db_connection, fetch_historical_data, close_db_connection
 from fetch_data import main as fetch_data_main, get_historical_data, get_tweets, analyze_sentiment
 from risk_management import adjust_stop_loss_take_profit, calculate_stop_loss, calculate_take_profit, calculate_technical_indicators, detect_patterns, place_order_with_risk_management
 from trading_strategy import build_and_train_model, predict_prices, train_rl_model, rl_trading_decision
 from portfolio_management import calculate_returns, optimize_portfolio
+from tokenizer_utils import load_tokenizer_from_json
+tokenizer_json = """ ... your JSON string ... """
+tokenizer = load_tokenizer_from_json(tokenizer_json)
+# Use tokenizer as needed
 import tradingbot
+import sqlite3
+
+# Connect to the SQLite database
+conn = sqlite3.connect('trading_bot.db')
+
 
 # Constants
 DB_FILE = 'trading_bot.db'
@@ -178,7 +188,7 @@ def main():
             take_profit = calculate_take_profit(data.iloc[-1]['close'], 1.0, stop_loss)
 
         # Example: Place order with dynamic SL and TP
-        # place_order_with_risk_management(exchange, symbol, 'buy', 0.001, stop_loss, take_profit)
+        #place_order_with_risk_management(exchange, symbol, 'buy', 0.001, stop_loss, take_profit)
     
     except ccxt.AuthenticationError as e:
         logging.error("Authentication error: %s. Please check your API key and secret.", e)
@@ -226,5 +236,20 @@ def main():
     # Execute trading decision
     execute_trading_decision(exchange, symbol, decision)
 
-if __name__ == "__main__":
-    main()
+if __name__ == '__main__':
+    database_file = 'trading_bot.db'
+    conn = create_connection(database_file)
+
+    # Create necessary tables if they don't exist
+    create_tables(conn)
+
+    # Example: Insert a trade
+    insert_trade(conn, 'BTCUSDT', 'BUY', 35000, 0.1)
+
+    # Example: Query all trades
+    trades = get_all_trades(conn)
+    for trade in trades:
+        print(trade)
+
+    # Close the connection when done
+    close_connection(conn)

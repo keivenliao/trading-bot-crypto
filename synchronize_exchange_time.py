@@ -20,6 +20,10 @@ def synchronize_system_time(retries=3):
                 offset = (current_time - local_time).total_seconds() * 1000  # Convert to milliseconds
                 logging.info(f"System time synchronized: {current_time} using server {server}")
                 return offset
+            except ntplib.NTPException as e:
+                logging.warning(f"Attempt {attempt + 1} failed for server {server}: NTPException - {e}")
+            except OSError as e:
+                logging.warning(f"Attempt {attempt + 1} failed for server {server}: OS Error - {e}")
             except Exception as e:
                 logging.warning(f"Attempt {attempt + 1} failed for server {server}: {e}")
     logging.error("All attempts to synchronize time failed")

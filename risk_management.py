@@ -6,6 +6,8 @@ from datetime import date, datetime, timedelta
 import os
 import ntplib
 
+from fetch_data import detect_signals
+
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -134,8 +136,6 @@ def detect_double_top(data):
         logging.error("Failed to detect Double Top pattern: %s", e)
         raise e
 
-    
-    
 def calculate_position_size(balance, risk_percentage, entry_price, stop_loss):
     risk_amount = balance * (risk_percentage / 100)
     position_size = risk_amount / abs(entry_price - stop_loss)
@@ -150,8 +150,6 @@ def calculate_atr(data, period=14):
     atr = true_range.rolling(window=period).mean()
     return atr
 
-#date here was suggessted by GPT ., but the code was as atr = calculate_atr()data 
-# Ensure calculate_atr calculates ATR based on your data frame (data) and possibly adjusts the period parameter based on market conditions. 
 def calculate_stop_loss(entry_price, atr_multiplier, data):
     atr = calculate_atr(data)  # Implement calculate_atr function
     stop_loss = entry_price - atr_multiplier * atr
@@ -161,7 +159,6 @@ def calculate_take_profit(entry_price, risk_reward_ratio, stop_loss):
     take_profit_distance = abs(entry_price - stop_loss) * risk_reward_ratio
     take_profit = entry_price + take_profit_distance if entry_price > stop_loss else entry_price - take_profit_distance
     return take_profit
-
 
 def apply_trailing_stop_loss(entry_price, current_price, trailing_percent):
     trailing_stop = entry_price * (1 - trailing_percent)
@@ -177,18 +174,16 @@ def calculate_risk_reward(entry_price, stop_loss_price, take_profit_price):
 
 def adjust_stop_loss_take_profit(data, entry_price):
     # Example: Adjust based on SMA and RSI
-    if data.iloc[-1]['SMA_50'] > data.iloc[-1]['SMA_200']:
+    if data['SMA_50'].iloc[-1] > data['SMA_200'].iloc[-1]:
         stop_loss = calculate_stop_loss(entry_price, 1.5, data)
         take_profit = calculate_take_profit(entry_price, 2.0, stop_loss)
-    elif data.iloc[-1]['SMA_50'] < data.iloc[-1]['SMA_200']:
+    elif data['SMA_50'].iloc[-1] < data['SMA_200'].iloc[-1]:
         stop_loss = calculate_stop_loss(entry_price, 2.0, data)
         take_profit = calculate_take_profit(entry_price, 1.5, stop_loss)
     else:
-        stop_loss = calculate_stop_loss(entry_price, 1.0, data)  # Default or neutral strategy
-        take_profit = calculate_take_profit(entry_price, 1.0, stop_loss)  # Default or neutral strategy
-    
+        stop_loss = calculate_stop_loss(entry_price, 1.0, data)
+        take_profit = calculate_take_profit(entry_price, 1.0, stop_loss)  
     return stop_loss, take_profit
-
 
 def place_order_with_risk_management(exchange, symbol, side, amount, stop_loss=None, take_profit=None):
     try:
@@ -198,9 +193,9 @@ def place_order_with_risk_management(exchange, symbol, side, amount, stop_loss=N
         order_price = order.get('price')
         if order_price:
             if not stop_loss:
-                stop_loss = calculate_stop_loss(order_price, 1.5)  # Example: Adjust multiplier as per your strategy
+                stop_loss = calculate_stop_loss(order_price, 1.5, date)  # Ensure data is passed
             if not take_profit:
-                take_profit = calculate_take_profit(order_price, 2.0, stop_loss)  # Example: Adjust risk-reward ratio
+                take_profit = calculate_take_profit(order_price, 2.0, stop_loss)  # Ensure data is passed
             
             logging.info(f"Stop Loss: {stop_loss}, Take Profit: {take_profit}")
             
@@ -215,7 +210,6 @@ def place_order_with_risk_management(exchange, symbol, side, amount, stop_loss=N
             logging.warning("Order price not available, cannot calculate stop-loss and take-profit.")
     except ccxt.BaseError as e:
         logging.error(f"An error occurred: {e}")
-
 
 def apply_position_sizing(df, risk_percentage):
     """
@@ -236,7 +230,6 @@ def apply_position_sizing(df, risk_percentage):
     
     return df
 
-
 def apply_stop_loss(df, stop_loss_percentage):
     """
     Apply stop loss logic based on stop loss percentage from entry price.
@@ -252,6 +245,71 @@ def apply_stop_loss(df, stop_loss_percentage):
     df['stop_loss'] = df['entry_price'] * (1 - stop_loss_percentage / 100)
     
     return df
+
+def risk_management(balance, entry_price, stop_loss, take_profit):
+    risk_amount = balance * 0.02  # Risk 2% of the balance
+    position_size = risk_amount / abs(entry_price - stop_loss)
+    adjusted_position_size = min(position_size, balance / entry_price)
+    risk_reward_ratio = calculate_risk_reward(entry_price, stop_loss, take_profit)
+    if risk_reward_ratio < 1.0:
+        adjusted_position_size = 0  # Do not take the trade if the risk-reward ratio is less than 1.0
+    return adjusted_position_size, stop_loss, take_profit
+
+def place_order(exchange, symbol, side, quantity, price, stop_loss, take_profit):
+    try:
+        order = exchange.create_order(symbol, 'limit', side, quantity, price)
+        logging.info(f"Placed {side} order for {symbol}: {order}")
+        # Additional logic for stop loss and take profit can be added here
+    except Exception as e:
+        logging.error(f"Failed to place {side} order for {symbol}: %s", e)
+        raise e
+
+def backtest_strategy(df, initial_capital=1000, position_size=1, transaction_cost=0.001, stop_loss_pct=0.02, take_profit_pct=0.05):
+    try:
+        sma_lengths = (50, 200)  # Define sma_lengths or get this from configuration
+        df['signal'] = df.apply(lambda row: detect_signals(df, sma_lengths), axis=1)
+        df['position'] = 0  # 1 for long, -1 for short, 0 for no position
+        df['capital'] = initial_capital
+        df['balance'] = initial_capital
+        current_position = 0
+        entry_price = 0
+
+        for i in range(1, len(df)):
+            if df.at[i, 'signal'] == 'buy' and current_position == 0:
+                current_position = position_size
+                entry_price = df.at[i, 'close']
+                df.at[i, 'position'] = current_position
+                df.at[i, 'capital'] -= df.at[i, 'close'] * position_size * (1 + transaction_cost)
+                df.at[i, 'balance'] -= df.at[i, 'close'] * position_size * (1 + transaction_cost)
+
+            elif df.at[i, 'signal'] == 'sell' and current_position == position_size:
+                current_position = 0
+                df.at[i, 'position'] = current_position
+                df.at[i, 'capital'] += df.at[i, 'close'] * position_size * (1 - transaction_cost)
+                df.at[i, 'balance'] += df.at[i, 'close'] * position_size * (1 - transaction_cost)
+
+            if current_position == position_size:
+                if df.at[i, 'close'] <= entry_price * (1 - stop_loss_pct):
+                    current_position = 0
+                    df.at[i, 'position'] = current_position
+                    df.at[i, 'capital'] += df.at[i, 'close'] * position_size * (1 - transaction_cost)
+                    df.at[i, 'balance'] += df.at[i, 'close'] * position_size * (1 - transaction_cost)
+                    logging.info("Stop-loss triggered")
+
+                if df.at[i, 'close'] >= entry_price * (1 + take_profit_pct):
+                    current_position = 0
+                    df.at[i, 'position'] = current_position
+                    df.at[i, 'capital'] += df.at[i, 'close'] * position_size * (1 - transaction_cost)
+                    df.at[i, 'balance'] += df.at[i, 'close'] * position_size * (1 - transaction_cost)
+                    logging.info("Take-profit triggered")
+
+        final_balance = df['balance'].iloc[-1]  # Ensure to use the last balance value
+        logging.info("Backtesting completed. Final balance: %.2f", final_balance)
+        return df, final_balance
+    except Exception as e:
+        logging.error("Error during backtesting: %s", e)
+        raise e
+
 
 
 def main():
@@ -273,18 +331,41 @@ def main():
         data = calculate_technical_indicators(data)
         data = detect_patterns(data)
         
+        # Perform backtesting
+        data, final_balance = backtest_strategy(data)
+        
+        # Trading logic
+        balance = 10000  # Example balance
+        entry_price = data['close'].iloc[-1]
+        stop_loss, take_profit = adjust_stop_loss_take_profit(data, entry_price)
+        position_size, stop_loss, take_profit = risk_management(balance, entry_price, stop_loss, take_profit)
+    
+        if position_size > 0:
+            place_order(exchange, symbol, 'buy', position_size, entry_price, stop_loss, take_profit)
+        
+        # Add the print statements and fillna method here
+        print(data['SMA_50'])
+        print(data['SMA_200'])
+        print(data['SMA_50'].iloc[-1])
+        print(data['SMA_200'].iloc[-1])
+        
+        data['SMA_50'].fillna(method='ffill', inplace=True)
+        data['SMA_200'].fillna(method='ffill', inplace=True)
+        
+        data = detect_patterns(data)
+        
         # Example of market analysis (hypothetical)
-        if (data['SMA_50'].iloc[-1] > data['SMA_200'].iloc[-1]):
+        if data['SMA_50'].iloc[-1] > data['SMA_200'].iloc[-1]:
             trend = 'bullish'
-        elif (data['SMA_50'].iloc[-1] < data['SMA_200'].iloc[-1]):
+        elif data['SMA_50'].iloc[-1] < data['SMA_200'].iloc[-1]:
             trend = 'bearish'
         else:
             trend = 'neutral'
             
         # Example of determining trend based on SMA indicators
-        if (data['SMA_50'].iloc[-1] > data['SMA_200'].iloc[-1]):
+        if data['SMA_50'].iloc[-1] > data['SMA_200'].iloc[-1]:
             trend = 'bullish'
-        elif (data['SMA_50'].iloc[-1] < data['SMA_200'].iloc[-1]):
+        elif data['SMA_50'].iloc[-1] < data['SMA_200'].iloc[-1]:
             trend = 'bearish'
         else:
             trend = 'neutral'
@@ -292,8 +373,11 @@ def main():
         logging.info(f"Determined trend: {trend}")
 
         # Example of applying condition explicitly
-        if (data['SMA_50'] > data['SMA_200']).any():
-            logging.info("SMA_50 is greater than SMA_200 for some rows")
+        if data['SMA_50'].iloc[-1] > data['SMA_200'].iloc[-1]:
+            logging.info("SMA_50 is greater than SMA_200 for the last row")
+        else:
+            logging.info("SMA_50 is NOT greater than SMA_200 for the last row")
+
 
         # Continue with other trading logic based on the determined trend
 
@@ -311,20 +395,33 @@ def main():
             return
 
         # Example of determining trend based on SMA indicators
-        if (data['SMA_50'].iloc[-1] > data['SMA_200'].iloc[-1]):
-            trend = 'bullish'
-        elif (data['SMA_50'].iloc[-1] < data['SMA_200'].iloc[-1]):
-            trend = 'bearish'
-        else:
-            trend = 'neutral'
+        if not data['SMA_50'].empty and not data['SMA_200'].empty:
+            sma_50_last = data['SMA_50'].iloc[-1]
+            sma_200_last = data['SMA_200'].iloc[-1]
 
-# Example of applying condition explicitly
-        if (data['SMA_50'] > data['SMA_200']).any():
+            if sma_50_last > sma_200_last:
+                trend = 'bullish'
+            elif sma_50_last < sma_200_last:
+                trend = 'bearish'
+            else:
+                trend = 'neutral'
+
+            logging.info(f"Determined trend: {trend}")
+
+            # Example of checking condition for the last row explicitly
+            if sma_50_last > sma_200_last:
+                logging.info("SMA_50 is greater than SMA_200 for the last row")
+            else:
+                logging.info("SMA_50 is NOT greater than SMA_200 for the last row")
+        else:
+            logging.warning("SMA_50 or SMA_200 data is empty, cannot determine trend.")
+
+        # Add your logic here based on the condition
+
         # Do something when SMA_50 is greater than SMA_200 for any row
 
-
-            # Uncomment the line below to place a real order
-            place_order_with_risk_management(exchange, symbol, side, amount, stop_loss, take_profit)
+        # Uncomment the line below to place a real order
+        place_order_with_risk_management(exchange, symbol, side, amount, stop_loss, take_profit)
 
     except ccxt.NetworkError as e:
         logging.error("A network error occurred: %s", e)
@@ -332,10 +429,6 @@ def main():
         logging.error("An error occurred: %s", e)
     except ValueError as e:
         logging.error("Value error occurred: %s", e)
-        
-        
+
 if __name__ == "__main__":
     main()
-    
-    
-    #2024-06-27 03:57:49,130 - ERROR - Value error occurred: The truth value of a Series is ambiguous. Use a.empty, a.bool(), a.item(), a.any() or a.all().

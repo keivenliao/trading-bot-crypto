@@ -48,7 +48,7 @@ def fetch_data(exchange, symbol='BTCUSDT', timeframe='1h', limit=100):
 
 def calculate_indicators(df, sma_short=20, sma_long=50, rsi_period=14, macd_fast=12, macd_slow=26, macd_signal=9):
     try:
-        df.ta.sma(length=sma_short, append=True)
+        df.ta.sma(length=sma_short, append=True) 
         df.ta.sma(length=sma_long, append=True)
         df.ta.rsi(length=rsi_period, append=True)
         df.ta.macd(fast=macd_fast, slow=macd_slow, signal=macd_signal, append=True)

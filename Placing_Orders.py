@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Load environment variables from .env file
-load_dotenv(dotenv_path='F:\trading\improvised-code-of-the-pdf-GPT-main/API.env')
+load_dotenv(dotenv_path=r'C:\Users\amrita\Desktop\improvised-code-of-the-pdf-GPT-main\API.env')
 
 def initialize_exchange(api_key: str, api_secret: str) -> ccxt.Exchange:
     """
@@ -81,6 +81,17 @@ def define_trading_strategy(df: pd.DataFrame) -> pd.DataFrame:
 def place_order(exchange: ccxt.Exchange, symbol: str, order_type: str, side: str, amount: float, price=None):
     """
     Place an order on the exchange.
+
+    Parameters:
+    - exchange (ccxt.Exchange): The exchange instance.
+    - symbol (str): The trading symbol (e.g., 'BTC/USDT').
+    - order_type (str): Order type ('market' or 'limit').
+    - side (str): Order side ('buy' or 'sell').
+    - amount (float): Amount to trade.
+    - price (float, optional): Price for limit orders.
+
+    Returns:
+    - order: The order object returned by the exchange API.
     """
     try:
         if order_type == 'market':
@@ -97,7 +108,9 @@ def place_order(exchange: ccxt.Exchange, symbol: str, order_type: str, side: str
         logging.error("Network error: %s", neterr)
     except ccxt.BaseError as e:
         logging.error("An error occurred: %s", e)
-
+    except ValueError as ve:
+        logging.error("Invalid parameter: %s", ve)
+        
 def manage_leverage(exchange: ccxt.Exchange, symbol: str, amount: float, risk_percent: float):
     """
     Dynamically manage leverage based on account balance and risk management.

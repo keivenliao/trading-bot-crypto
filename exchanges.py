@@ -39,9 +39,13 @@ def send_email_notification(subject, message):
     import smtplib
     from email.mime.text import MIMEText
 
-    sender = "your_email@example.com"
-    receiver = "receiver_email@example.com"
-    password = "your_email_password"
+    sender = os.getenv('EMAIL_USER')
+    receiver = 'receiver_email@example.com'  # Replace with actual receiver email
+    password = os.getenv('EMAIL_PASS')
+
+    if not sender or not password:
+        logging.error("Email credentials not found. Cannot send email notification.")
+        return
 
     msg = MIMEText(message)
     msg["Subject"] = subject
@@ -49,14 +53,13 @@ def send_email_notification(subject, message):
     msg["To"] = receiver
 
     try:
-        with smtplib.SMTP("smtp.example.com", 587) as server:
+        with smtplib.SMTP(os.getenv('SMTP_SERVER'), int(os.getenv('SMTP_PORT'))) as server:
             server.starttls()
             server.login(sender, password)
             server.sendmail(sender, receiver, msg.as_string())
             logging.info("Email notification sent successfully")
     except Exception as e:
         logging.error("Failed to send email notification: %s", e)
-
 
 def send_notification(message):
     logging.info(message)
@@ -114,8 +117,6 @@ def load_api_credentials(index):
     
     return api_key, api_secret
 
-
-
 def initialize_multiple_exchanges():
     """
     Initialize multiple Bybit exchanges using different API keys and secrets.
@@ -132,7 +133,6 @@ def initialize_multiple_exchanges():
             logging.error(error_message)
             send_notification(error_message)
     return exchanges
-
 
 if __name__ == "__main__":
     exchanges = initialize_multiple_exchanges()

@@ -4,6 +4,16 @@ import logging
 import smtplib
 import pandas as pd
 import requests
+import os
+
+# Email and Slack configurations (retrieve from environment variables)
+sender_email = os.getenv('SENDER_EMAIL')
+receiver_email = os.getenv('RECEIVER_EMAIL')
+smtp_server = os.getenv('SMTP_SERVER')
+smtp_port = int(os.getenv('SMTP_PORT', 587))
+smtp_user = os.getenv('SMTP_USER')
+smtp_password = os.getenv('SMTP_PASSWORD')
+slack_webhook_url = os.getenv('SLACK_WEBHOOK_URL')
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -33,7 +43,7 @@ def track_performance_metrics(df):
     logging.info("50-period Moving Average of Close Price:")
     logging.info(moving_average_50.tail())
     
-    # Check for crossing moving averages (simple example of a trading signal)
+    # Check for crossing moving averages (example of a trading signal)
     if moving_average_10.iloc[-1] > moving_average_50.iloc[-1]:
         send_notification("10-period moving average crossed above 50-period moving average.")
     elif moving_average_10.iloc[-1] < moving_average_50.iloc[-1]:
@@ -46,17 +56,6 @@ def send_notification(message):
     Parameters:
     - message (str): The notification message to be sent.
     """
-    # Email configuration
-    sender_email = "your_email@example.com"
-    receiver_email = "receiver_email@example.com"
-    smtp_server = "smtp.example.com"
-    smtp_port = 587
-    smtp_user = "your_email@example.com"
-    smtp_password = "your_password"
-
-    # Slack webhook URL
-    slack_webhook_url = "https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX"
-
     # Create the email
     msg = MIMEMultipart()
     msg['From'] = sender_email
@@ -76,6 +75,7 @@ def send_notification(message):
     except Exception as e:
         logging.error("Failed to send email: %s", str(e))
 
+    # Send notification to Slack
     slack_message = {
         "text": message
     }
@@ -91,17 +91,27 @@ def send_notification(message):
     # Log the message as well
     logging.info(message)
 
-# Example usage
+# Enhanced main function for example usage
 if __name__ == "__main__":
-    # Sample DataFrame for demonstration purposes
-    data = {
-        'timestamp': pd.date_range(start='2021-01-01', periods=100, freq='h'),
-        'open': pd.Series(range(100)),
-        'high': pd.Series(range(1, 101)),
-        'low': pd.Series(range(100)),
-        'close': pd.Series(range(1, 101)),
-        'volume': pd.Series(range(100, 200))
-    }
-    df = pd.DataFrame(data)
-    
-    track_performance_metrics(df)
+    try:
+        # Sample DataFrame for demonstration purposes (replace with actual data retrieval)
+        data = {
+            'timestamp': pd.date_range(start='2021-01-01', periods=100, freq='h'),
+            'open': pd.Series(range(100)),
+            'high': pd.Series(range(1, 101)),
+            'low': pd.Series(range(100)),
+            'close': pd.Series(range(1, 101)),
+            'volume': pd.Series(range(100, 200))
+        }
+        df = pd.DataFrame(data)
+        
+        # Track performance metrics
+        track_performance_metrics(df)
+        
+    except Exception as e:
+        logging.error("An error occurred in monitoring script: %s", str(e))
+
+    # Ensure proper logging and error handling throughout the script
+    finally:
+        logging.shutdown()
+

@@ -2,6 +2,12 @@ import ccxt
 import logging
 import os
 
+from tensorflow.keras.models import load_model
+
+model = load_model('test_model.h5')
+print(model.summary())  # Print model summary
+
+
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 def test_api_credentials(api_key, api_secret):
@@ -24,7 +30,7 @@ def test_api_credentials(api_key, api_secret):
         logging.info("Successfully fetched open orders: %s", orders)
 
         # Example: Place a test order with adjusted parameters
-        test_order = exchange.create_limit_buy_order('BTCUSDT', 0.0001, 10000)
+        test_order = exchange.create_limit_buy_order('BTCUSDT', 0.001, 10000)
         logging.info("Test order placed successfully: %s", test_order)
 
         return balance, orders
@@ -41,6 +47,18 @@ def test_api_credentials(api_key, api_secret):
     except Exception as e:
         logging.error("An unexpected error occurred: %s", e)
         raise e
+
+if __name__ == "__main__":
+    api_key = os.getenv('BYBIT_API_KEY', 'YOUR_API_KEY')
+    api_secret = os.getenv('BYBIT_API_SECRET', 'YOUR_API_SECRET')
+
+    if not api_key or not api_secret:
+        logging.error("API key and secret must be set as environment variables or provided in the script.")
+    else:
+        try:
+            test_api_credentials(api_key, api_secret)
+        except Exception as e:
+            logging.error("Failed to test API credentials: %s", e)
 
 if __name__ == "__main__":
     api_key = os.getenv('BYBIT_API_KEY', 'YOUR_API_KEY')

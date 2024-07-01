@@ -115,13 +115,21 @@ def execute_trade(exchange, symbol, signal, available_usd, btc_price):
     Execute trades based on signals.
     """
     try:
+        min_btc_amount = 0.001  # Bybit minimum amount precision
         if signal == 'buy':
             logging.info("Executing Buy Order")
             amount = available_usd / btc_price  # Calculate amount of BTC to buy with available USD
-            exchange.create_market_buy_order(symbol, amount)
+            if amount >= min_btc_amount:
+                exchange.create_market_buy_order(symbol, amount)
+            else:
+                logging.warning(f"Buy amount {amount} is less than the minimum precision {min_btc_amount}")
         elif signal == 'sell':
             logging.info("Executing Sell Order")
-            exchange.create_market_sell_order(symbol, available_usd / btc_price)  # Use the same amount logic for sell
+            amount = available_usd / btc_price  # Use the same amount logic for sell
+            if amount >= min_btc_amount:
+                exchange.create_market_sell_order(symbol, amount)
+            else:
+                logging.warning(f"Sell amount {amount} is less than the minimum precision {min_btc_amount}")
     except ccxt.BaseError as e:
         logging.error(f"Error executing {signal} order: {e}")
         raise e
