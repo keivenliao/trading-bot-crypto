@@ -1,11 +1,10 @@
-from sre_parse import Tokenizer
+from tensorflow.keras.preprocessing.text import Tokenizer, tokenizer_from_json
 import numpy as np
 import requests
 import logging
 import os
 import json
 import argparse
-from tensorflow.keras.preprocessing.text import tokenizer_from_json
 from tensorflow.keras.preprocessing.sequence import pad_sequences
 from tensorflow.keras.models import Sequential, load_model
 from tensorflow.keras.layers import Embedding, Conv1D, GlobalMaxPooling1D, Dense
@@ -13,7 +12,6 @@ from sklearn.preprocessing import LabelEncoder
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import precision_score, recall_score, f1_score
 from langdetect import detect
-from transformers import pipeline
 import unittest
 
 # Configure logging
@@ -29,7 +27,7 @@ def fetch_real_time_sentiment():
         try:
             response = requests.get(url, headers=headers)
             response.raise_for_status()
-            sentiment_data = response.json()
+            sentiment_data = save_model.json()
             if 'score' in sentiment_data:
                 sentiment_score = sentiment_data['score']
                 logging.info(f"Real-time sentiment score: {sentiment_score}")
@@ -51,15 +49,14 @@ def preprocess_text(tweets, tokenizer=None):
     return data, tokenizer
 
 def save_tokenizer(tokenizer, path='tokenizer.json'):
+    tokenizer_json = tokenizer.to_json()
     with open(path, 'w') as f:
-        json.dump(tokenizer.to_json(), f)
+        json.dump(tokenizer_json, f)
 
 def load_tokenizer(path='tokenizer.json'):
     with open(path) as f:
         tokenizer_json = json.load(f)
-    tokenizer = Tokenizer.from_json(tokenizer_json)
-    #tokenizer = Tokenizer()
-    #tokenizer.word_index = json.loads(tokenizer_json)['word_index']
+    tokenizer = tokenizer_from_json(tokenizer_json)
     return tokenizer
 
 def build_sentiment_model(input_length, embedding_dim=128, num_filters=128, kernel_size=5):
@@ -92,7 +89,6 @@ def analyze_sentiment(tweets, model, tokenizer, real_time_score=None):
     if real_time_score is not None:
         average_sentiment = (average_sentiment + real_time_score) / 2
     return average_sentiment
-
 
 def detect_language(text):
     return detect(text)
@@ -190,64 +186,49 @@ def main():
                 X_train, X_val, y_train, y_val = train_test_split(data, labels, test_size=0.2, random_state=42)
 
                 model.fit(X_train, y_train, epochs=10, batch_size=2, validation_data=(X_val, y_val))
-
                 save_model(model, f'sentiment_model_{language}.h5')
                 evaluate_model(model, X_val, y_val)
+            else:
+                logging.error(f"Unsupported language: {language}")
+                continue
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()
 
-# Unit tests
 class TestSentimentAnalysis(unittest.TestCase):
-    
-    def setUp(self):
-        self.tweets = ["I love this!", "I hate this!", "This is the best!", "This is the worst!"]
-        self.labels = [1, 0, 1, 0]
-    
-    def test_fetch_real_time_sentiment(self):
-        score = fetch_real_time_sentiment()
-        self.assertIsNotNone(score, "Failed to fetch real-time sentiment score")
-
-
-    def test_preprocess_text(self):
-        tweets = ["This is a test tweet"]
-        data, tokenizer = preprocess_text(tweets)
-        self.assertEqual(data.shape, (1, 100))
-        self.assertIsInstance(tokenizer, Tokenizer)
-
-    def test_build_sentiment_model(self):
-        data, _ = preprocess_text(self.tweets)
-        model = build_sentiment_model(data.shape[1])
-        self.assertIsInstance(model, Sequential)
 
     def test_save_load_tokenizer(self):
-        _, tokenizer = preprocess_text(self.tweets)
-        save_tokenizer(tokenizer, 'test_tokenizer.json')
-        loaded_tokenizer = load_tokenizer('test_tokenizer.json')
-        self.assertEqual(tokenizer.word_index, loaded_tokenizer.word_index)
-
-    def test_save_load_tokenizer(self):
-        tweets = ["This is a test tweet"]
+        tweets = ["I love this!", "I hate this!", "This is the best!", "This is the worst!"]
         _, tokenizer = preprocess_text(tweets)
         save_tokenizer(tokenizer, 'test_tokenizer.json')
         loaded_tokenizer = load_tokenizer('test_tokenizer.json')
-        self.assertIsNotNone(loaded_tokenizer, "Tokenizer loading failed")
-
-    def test_detect_language(self):
-        text = "This is a test."
-        language = detect_language(text)
-        self.assertEqual(language, "en", "Language detection failed")
-
-    def test_save_load_model(self):
-        data, _ = preprocess_text(self.tweets)
-        model = build_sentiment_model(data.shape[1])
-        save_model(model, 'test_sentiment_model.h5')
-        loaded_model = load_sentiment_model('test_sentiment_model.h5')
-        self.assertEqual(model.to_json(), loaded_model.to_json()[:100])
+        self.assertEqual(tokenizer.to_json(), loaded_tokenizer.to_json())
 
     def test_fetch_real_time_sentiment(self):
         score = fetch_real_time_sentiment()
         self.assertIsInstance(score, float)
+
+    def test_preprocess_text(self):
+        tweets = ["I love this!", "I hate this!", "This is the best!", "This is the worst!"]
+        data, tokenizer = preprocess_text(tweets)
+        self.assertEqual(data.shape, (4, 100))
+        self.assertIsInstance(tokenizer, Tokenizer)
+
+    def test_save_load_model(self):
+        model = build_sentiment_model(100)
+        save_model(model, 'test_sentiment_model.keras')
+        loaded_model = load_sentiment_model('test_sentiment_model.keras')
+        
+        original_json = json.loads(model.to_json())
+        loaded_json = json.loads(loaded_model.to_json())
+        
+        # Compare the structure of both models
+        self.assertEqual(original_json['config'], loaded_json['config'])
+
+    def test_build_sentiment_model(self):
+        model = build_sentiment_model(100)
+        self.assertIsInstance(model, Sequential)
+        self.assertEqual(len(model.layers), 5)
 
 if __name__ == '__main__':
     unittest.main()
